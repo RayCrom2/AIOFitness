@@ -7,7 +7,7 @@ body{font-family:Inter,Segoe UI,Arial,Helvetica,sans-serif;margin:20px;backgroun
 .muscle path,.muscle rect,.muscle ellipse{fill:#e9eef6;stroke:#3b3b3b;stroke-width:1}
 .muscle:hover path,.muscle:hover rect,.muscle:hover ellipse{fill:#dbe7ff;cursor:pointer}
 .muscle.selected path,.muscle.selected rect,.muscle.selected ellipse{fill:var(--accent)}
-.muscle.selected-back path{fill:#caa3ff}
+.muscle.selected-back path{fill:var(--accent)}
 .legend{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
 .legend-btn{border:1px solid #ddd;background:#fff;padding:6px 10px;border-radius:6px;cursor:pointer}
 .legend-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
