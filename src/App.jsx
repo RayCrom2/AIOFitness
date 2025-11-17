@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import HumanDiagram from './components/HumanDiagram'
+import HumanDiagram from './components/HumanDiagram'          // front
+import HumanDiagramBack from './components/HumanDiagramBack'  // back
 import muscles from './data/muscles'
 
 export default function App() {
   const [selected, setSelected] = useState(null)
   const [activePart, setActivePart] = useState(null)
+  const [view, setView] = useState('front') // 'front' | 'back'
   const diagramRef = useRef(null)
 
   // ---- Normalizers ---------------------------------------------------------
@@ -93,19 +95,65 @@ export default function App() {
   return (
     <div className="app">
       <h1>AIOFitness — Muscle Selector</h1>
+
+      {/* Front / Back toggle */}
+      <div style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
+        <button
+          type="button"
+          onClick={() => setView('front')}
+          style={{
+            padding: '6px 12px',
+            borderRadius: 999,
+            border: '1px solid #d1d5db',
+            background: view === 'front' ? '#ff8c42' : '#fff',
+            color: view === 'front' ? '#fff' : '#111',
+            cursor: 'pointer',
+          }}
+        >
+          Front
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('back')}
+          style={{
+            padding: '6px 12px',
+            borderRadius: 999,
+            border: '1px solid #d1d5db',
+            background: view === 'back' ? '#ff8c42' : '#fff',
+            color: view === 'back' ? '#fff' : '#111',
+            cursor: 'pointer',
+          }}
+        >
+          Back
+        </button>
+      </div>
+
       <div className="layout" ref={diagramRef}>
-        <HumanDiagram selected={selected} onSelect={handleSelect} />
+        {/* Conditionally render front or back diagram */}
+        {view === 'front' ? (
+          <HumanDiagram selected={selected} onSelect={handleSelect} />
+        ) : (
+          <HumanDiagramBack selected={selected} onSelect={handleSelect} />
+        )}
 
         <div className="info">
-          <h2><strong>{displayName}</strong></h2>
+          <h2>
+            <strong>{displayName}</strong>
+          </h2>
           {displayInfo ? (
             <>
               <p>{displayInfo.description}</p>
-              {displayInfo.tips ? <p><strong>Tips:</strong> {displayInfo.tips}</p> : null}
+              {displayInfo.tips ? (
+                <p>
+                  <strong>Tips:</strong> {displayInfo.tips}
+                </p>
+              ) : null}
               {/* If this muscle has defined parts, render buttons to pick a part */}
               {displayInfo.parts && displayInfo.parts.length ? (
                 <div style={{ marginTop: 8 }}>
-                  <p><strong>Parts</strong></p>
+                  <p>
+                    <strong>Parts</strong>
+                  </p>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {displayInfo.parts.map((p) => (
                       <button
@@ -114,8 +162,12 @@ export default function App() {
                         style={{
                           padding: '6px 10px',
                           borderRadius: 6,
-                          border: activePart === p.key ? '2px solid #ff8c42' : '1px solid #ddd',
-                          background: activePart === p.key ? '#ff8c42' : '#fff',
+                          border:
+                            activePart === p.key
+                              ? '2px solid #ff8c42'
+                              : '1px solid #ddd',
+                          background:
+                            activePart === p.key ? '#ff8c42' : '#fff',
                           color: activePart === p.key ? '#fff' : '#111',
                           cursor: 'pointer',
                         }}
@@ -123,7 +175,10 @@ export default function App() {
                         {p.name}
                       </button>
                     ))}
-                    <button onClick={() => setActivePart(null)} style={{ padding: '6px 10px' }}>
+                    <button
+                      onClick={() => setActivePart(null)}
+                      style={{ padding: '6px 10px' }}
+                    >
                       Clear
                     </button>
                   </div>
@@ -133,15 +188,23 @@ export default function App() {
               {/* If a subpart is active show its details, otherwise show the main exercises */}
               {activePart ? (
                 (() => {
-                  const part = displayInfo.parts?.find((pp) => pp.key === activePart)
+                  const part = displayInfo.parts?.find(
+                    (pp) => pp.key === activePart
+                  )
                   if (!part) return null
                   return (
                     <div style={{ marginTop: 10 }}>
                       <p>{part.description}</p>
-                      {part.tips ? <p><strong>Tips:</strong> {part.tips}</p> : null}
+                      {part.tips ? (
+                        <p>
+                          <strong>Tips:</strong> {part.tips}
+                        </p>
+                      ) : null}
                       {part.exercises && part.exercises.length ? (
                         <>
-                          <p><strong>Exercises</strong></p>
+                          <p>
+                            <strong>Exercises</strong>
+                          </p>
                           <ul>
                             {part.exercises.map((ex) => (
                               <li key={ex}>{ex}</li>
@@ -152,21 +215,25 @@ export default function App() {
                     </div>
                   )
                 })()
-              ) : (
-                displayInfo.exercises && displayInfo.exercises.length ? (
-                  <>
-                    <p><strong>Exercises</strong></p>
-                    <ul>
-                      {displayInfo.exercises.map((ex) => (
-                        <li key={ex}>{ex}</li>
-                      ))}
-                    </ul>
-                  </>
-                ) : null
-              )}
-              {displayInfo.contraindications && displayInfo.contraindications.length ? (
+              ) : displayInfo.exercises && displayInfo.exercises.length ? (
                 <>
-                  <p><strong>Contraindications</strong></p>
+                  <p>
+                    <strong>Exercises</strong>
+                  </p>
+                  <ul>
+                    {displayInfo.exercises.map((ex) => (
+                      <li key={ex}>{ex}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+
+              {displayInfo.contraindications &&
+              displayInfo.contraindications.length ? (
+                <>
+                  <p>
+                    <strong>Contraindications</strong>
+                  </p>
                   <ul>
                     {displayInfo.contraindications.map((c) => (
                       <li key={c}>{c}</li>
