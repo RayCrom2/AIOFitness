@@ -325,10 +325,10 @@ const bodyFront = [
 const GROUPS = ["Shoulders", "Chest", "Arms", "Core", "Legs"];
 const GROUP_TO_SLUGS = {
   Shoulders: ["deltoids", "trapezius"],
-  Chest: ["chest", "obliques"],
-  Arms: ["biceps", "triceps", "forearm", "hands"],
-  Core: ["abs", "neck"],
-  Legs: ["adductors", "quadriceps", "knees", "tibialis", "calves", "ankles", "feet"],
+  Chest: ["chest"],
+  Arms: ["biceps", "triceps", "forearm"],
+  Core: ["abs", "obliques"],
+  Legs: ["adductors", "quadriceps", "calves"],
 };
 
 const BASE_FILL = "#e9eff6";
@@ -495,7 +495,7 @@ export default function HumanDiagramFront({
           onClick={() => setSel(new Set())}
           style={{ ...styles.btn, color: "#475569" }}
         >
-          Clear
+          Clear Selection
         </button>
       </div>
 

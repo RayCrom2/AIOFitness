@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import HumanDiagram from './components/HumanDiagram'
+import muscles from './data/muscles'
 
 export default function App() {
   const [selected, setSelected] = useState(null)
+  const [activePart, setActivePart] = useState(null)
   const diagramRef = useRef(null)
 
   // ---- Normalizers ---------------------------------------------------------
@@ -77,6 +79,17 @@ export default function App() {
 
   const displayName = useMemo(() => normalizeForDisplay(selected), [selected])
 
+  const displayInfo = useMemo(() => {
+    if (!selected) return null
+    const base = selected.replace(/\.(left|right)$/i, '')
+    return muscles[base] || null
+  }, [selected])
+
+  useEffect(() => {
+    // clear any selected subpart when main selection changes
+    setActivePart(null)
+  }, [selected])
+
   return (
     <div className="app">
       <h1>AIOFitness — Muscle Selector</h1>
@@ -84,11 +97,83 @@ export default function App() {
         <HumanDiagram selected={selected} onSelect={handleSelect} />
 
         <div className="info">
-          <h2>Selected</h2>
-          {displayName ? (
+          <h2><strong>{displayName}</strong></h2>
+          {displayInfo ? (
             <>
-              <p><strong>{displayName}</strong></p>
-              <p>Information about the {displayName.toLowerCase()} muscles.</p>
+              <p>{displayInfo.description}</p>
+              {displayInfo.tips ? <p><strong>Tips:</strong> {displayInfo.tips}</p> : null}
+              {/* If this muscle has defined parts, render buttons to pick a part */}
+              {displayInfo.parts && displayInfo.parts.length ? (
+                <div style={{ marginTop: 8 }}>
+                  <p><strong>Parts</strong></p>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {displayInfo.parts.map((p) => (
+                      <button
+                        key={p.key}
+                        onClick={() => setActivePart(p.key)}
+                        style={{
+                          padding: '6px 10px',
+                          borderRadius: 6,
+                          border: activePart === p.key ? '2px solid #ff8c42' : '1px solid #ddd',
+                          background: activePart === p.key ? '#ff8c42' : '#fff',
+                          color: activePart === p.key ? '#fff' : '#111',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                    <button onClick={() => setActivePart(null)} style={{ padding: '6px 10px' }}>
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* If a subpart is active show its details, otherwise show the main exercises */}
+              {activePart ? (
+                (() => {
+                  const part = displayInfo.parts?.find((pp) => pp.key === activePart)
+                  if (!part) return null
+                  return (
+                    <div style={{ marginTop: 10 }}>
+                      <p>{part.description}</p>
+                      {part.tips ? <p><strong>Tips:</strong> {part.tips}</p> : null}
+                      {part.exercises && part.exercises.length ? (
+                        <>
+                          <p><strong>Exercises</strong></p>
+                          <ul>
+                            {part.exercises.map((ex) => (
+                              <li key={ex}>{ex}</li>
+                            ))}
+                          </ul>
+                        </>
+                      ) : null}
+                    </div>
+                  )
+                })()
+              ) : (
+                displayInfo.exercises && displayInfo.exercises.length ? (
+                  <>
+                    <p><strong>Exercises</strong></p>
+                    <ul>
+                      {displayInfo.exercises.map((ex) => (
+                        <li key={ex}>{ex}</li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null
+              )}
+              {displayInfo.contraindications && displayInfo.contraindications.length ? (
+                <>
+                  <p><strong>Contraindications</strong></p>
+                  <ul>
+                    {displayInfo.contraindications.map((c) => (
+                      <li key={c}>{c}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
             </>
           ) : (
             <p>No muscle selected. Click the diagram.</p>
