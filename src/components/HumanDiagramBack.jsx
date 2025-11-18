@@ -321,7 +321,7 @@ export default function BodyDiagramBack({
   };
 
   return (
-    <div aria-label="Interactive human muscle diagram (back)">
+    <div aria-label="Interactive human muscle diagram">
       <svg
         // back coordinates are around x ~ 800–1400, y up to ~1350
         viewBox="710 0 700 1400"
@@ -331,7 +331,7 @@ export default function BodyDiagramBack({
         aria-labelledby="title"
         style={{ display: "block", margin: "0 auto" }}
       >
-        <title id="back-title">Interactive human muscle diagram (back)</title>
+        <title id="back-title">Interactive human muscle diagram</title>
 
         <g filter="url(#shadow-back)">
           {bodyBack.map((part) => {

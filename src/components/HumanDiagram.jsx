@@ -387,7 +387,7 @@ export default function HumanDiagramFront({
         aria-labelledby="title"
         style={{ display: "block", margin: "0 auto" }}
       >
-        <title id="title">Interactive human muscle diagram (front)</title>
+        <title id="title">Interactive human muscle diagram</title>
 
         <g filter="url(#shadow)">
           {bodyFront.map((part) => {

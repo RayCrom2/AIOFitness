@@ -1,12 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import HumanDiagram from './components/HumanDiagram'          // front
-import HumanDiagramBack from './components/HumanDiagramBack'  // back
+import HumanDiagram from './components/HumanDiagram'          // Male Front
+import HumanDiagramBack from './components/HumanDiagramBack'  // Male Back
+import HumanDiagramFemaleFront from './components/HumanDiagramFemaleFront'  // Female Front
+import HumanDiagramFemaleBack from './components/HumanDiagramFemaleBack'  // Female Back
 import muscles from './data/muscles'
 
 export default function App() {
   const [selected, setSelected] = useState(null)
   const [activePart, setActivePart] = useState(null)
+  
   const [view, setView] = useState('front') // 'front' | 'back'
+  
   const diagramRef = useRef(null)
 
   // ---- Normalizers ---------------------------------------------------------
@@ -110,7 +114,7 @@ export default function App() {
             cursor: 'pointer',
           }}
         >
-          Front
+          Front (Male)
         </button>
         <button
           type="button"
@@ -124,7 +128,35 @@ export default function App() {
             cursor: 'pointer',
           }}
         >
-          Back
+          Back (Male)
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('front2')}
+          style={{
+            padding: '6px 12px',
+            borderRadius: 999,
+            border: '1px solid #d1d5db',
+            background: view === 'front2' ? '#ff8c42' : '#fff',
+            color: view === 'front2' ? '#fff' : '#111',
+            cursor: 'pointer',
+          }}
+        >
+          Front (Female)
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('back2')}
+          style={{
+            padding: '6px 12px',
+            borderRadius: 999,
+            border: '1px solid #d1d5db',
+            background: view === 'back2' ? '#ff8c42' : '#fff',
+            color: view === 'back2' ? '#fff' : '#111',
+            cursor: 'pointer',
+          }}
+        >
+          Back (Female)
         </button>
       </div>
 
@@ -132,9 +164,12 @@ export default function App() {
         {/* Conditionally render front or back diagram */}
         {view === 'front' ? (
           <HumanDiagram selected={selected} onSelect={handleSelect} />
-        ) : (
+        ) : view === 'back' ? (
           <HumanDiagramBack selected={selected} onSelect={handleSelect} />
-        )}
+        ) : view === 'front2' ? (
+        <HumanDiagramFemaleFront selected={selected} onSelect={handleSelect} />
+        ) : <HumanDiagramFemaleBack selected={selected} onSelect={handleSelect} />
+        }
 
         <div className="info">
           <h2>
