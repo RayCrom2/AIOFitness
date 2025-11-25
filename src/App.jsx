@@ -163,7 +163,11 @@ export default function App() {
       <div className="layout" ref={diagramRef}>
         {/* Conditionally render front or back diagram */}
         {view === 'front' ? (
-          <HumanDiagram selected={selected} onSelect={handleSelect} />
+          <HumanDiagram
+            selected={selected}
+            selectedSubpart={selected && activePart ? `${selected}.${activePart}` : selected}
+            onSelect={handleSelect}
+          />
         ) : view === 'back' ? (
           <HumanDiagramBack selected={selected} onSelect={handleSelect} />
         ) : view === 'front2' ? (

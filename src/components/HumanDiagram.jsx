@@ -333,6 +333,7 @@ const GROUP_TO_SLUGS = {
 
 const BASE_FILL = "#e9eff6";
 const HIGHLIGHT = "#6aa9ff";
+const SUBPART_HIGHLIGHT = "#ff8c42";
 const STROKE = "#3b3b3b";
 
 /**
@@ -344,6 +345,7 @@ const STROKE = "#3b3b3b";
  */
 export default function HumanDiagramFront({
   selectedSlugs,
+  selectedSubpart,
   onChange,
   width = 360,
   height,
@@ -392,9 +394,20 @@ export default function HumanDiagramFront({
         <g filter="url(#shadow)">
           {bodyFront.map((part) => {
             const isSelected = sel.has(part.slug);
+            // parse selectedSubpart prop to determine if a specific subpart is active
+            let highlightBase = null;
+            let highlightPart = null;
+            if (typeof selectedSubpart === "string") {
+              const dot = selectedSubpart.indexOf(".");
+              if (dot === -1) highlightBase = selectedSubpart;
+              else {
+                highlightBase = selectedSubpart.slice(0, dot);
+                highlightPart = selectedSubpart.slice(dot + 1);
+              }
+            }
+            const isHighlightedSubpart = highlightBase === part.slug && !!highlightPart;
             const fill = (slugSelected) => (slugSelected ? HIGHLIGHT : BASE_FILL);
-            const opacity =
-              part.slug === "hair" || part.slug === "head" ? 1 : 0.95;
+            const opacity = part.slug === "hair" || part.slug === "head" ? 1 : 0.95;
 
             // We render side-specific paths, but click anywhere on a slug selects that slug,
             // automatically highlighting both sides.
@@ -424,7 +437,7 @@ export default function HumanDiagramFront({
             return (
               <g
                 key={part.slug}
-                className={`muscle ${isSelected ? "selected" : ""}`}
+                className={`muscle ${isSelected ? "selected" : ""} ${isHighlightedSubpart ? "subpart" : ""}`}
                 tabIndex={isInteractive ? 0 : -1}
                 role={isInteractive ? "button" : undefined}
                 aria-pressed={isSelected}
@@ -435,9 +448,9 @@ export default function HumanDiagramFront({
                   <path
                     key={`c-${i}`}
                     d={d}
-                    fill={fill(isSelected)}
-                    stroke={STROKE}
-                    strokeWidth="4"
+                    fill={isHighlightedSubpart ? SUBPART_HIGHLIGHT : fill(isSelected)}
+                    stroke={isHighlightedSubpart ? "#8a3e10" : STROKE}
+                    strokeWidth={isHighlightedSubpart ? "6" : "4"}
                     opacity={opacity}
                   />
                 ))}
@@ -445,9 +458,9 @@ export default function HumanDiagramFront({
                   <path
                     key={`l-${i}`}
                     d={d}
-                    fill={fill(isSelected)}
-                    stroke={STROKE}
-                    strokeWidth="4"
+                    fill={isHighlightedSubpart ? SUBPART_HIGHLIGHT : fill(isSelected)}
+                    stroke={isHighlightedSubpart ? "#8a3e10" : STROKE}
+                    strokeWidth={isHighlightedSubpart ? "6" : "4"}
                     opacity={opacity}
                   />
                 ))}
@@ -455,9 +468,9 @@ export default function HumanDiagramFront({
                   <path
                     key={`r-${i}`}
                     d={d}
-                    fill={fill(isSelected)}
-                    stroke={STROKE}
-                    strokeWidth="4"
+                    fill={isHighlightedSubpart ? SUBPART_HIGHLIGHT : fill(isSelected)}
+                    stroke={isHighlightedSubpart ? "#8a3e10" : STROKE}
+                    strokeWidth={isHighlightedSubpart ? "6" : "4"}
                     opacity={opacity}
                   />
                 ))}
