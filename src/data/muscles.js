@@ -16,7 +16,7 @@ const muscles = {
         name: 'Anterior Deltoid (Front)',
         description:
           'The anterior deltoid is the front portion of the deltoid group; it assists with shoulder flexion and horizontal adduction and is emphasized by pressing movements with a forward angle.',
-        exercises: ['Front raise', 'Incline press', 'Arnold press'],
+        exercises: ['Front raise', 'Incline Bench Press', 'Arnold press'],
         tips: 'Control the eccentric phase and avoid excessive internal rotation under heavy loads.',
       },
       {
@@ -24,7 +24,7 @@ const muscles = {
         name: 'Lateral Deltoid (Middle)',
         description:
           'The lateral (middle) deltoid creates shoulder abduction and the rounded shoulder appearance; it is emphasized by lateral raises and wide pressing paths.',
-        exercises: ['Lateral raises', 'Upright rows (light)', 'Cable lateral'],
+        exercises: ['Lateral raises', 'Upright rows', 'Cable lateral raises'],
         tips: 'Use strict form on lateral raises to isolate the lateral head; avoid heavy momentum.',
       },
       {
@@ -53,7 +53,7 @@ const muscles = {
         name: 'Wrist & Finger Flexors (Anterior)',
         description:
           'Anterior forearm muscles that flex the wrist and fingers and support gripping activities.',
-        exercises: ['Wrist curl', 'Finger curls', 'Farmer carries (grip)'],
+        exercises: ['Wrist curl', 'Finger curls', 'Farmer carry'],
         tips: 'Use controlled tempo and avoid heavy ballistic loading when recovering from tendon issues.',
       },
       {
@@ -81,7 +81,7 @@ const muscles = {
         name: 'Clavicular Head (Upper Chest)',
         description:
           'The clavicular head is the upper portion of the pectoralis major; it is emphasized by incline pressing and helps with shoulder flexion and horizontal adduction at higher angles.',
-        exercises: ['Incline bench press', 'Incline dumbbell fly'],
+        exercises: ['Incline Bench Press', 'Incline dumbbell fly'],
         tips: 'Use controlled incline pressing with moderate range to target the upper fibers without overloading the shoulder.',
       },
       {
@@ -89,7 +89,7 @@ const muscles = {
         name: 'Sternal Head (Lower Chest)',
         description:
           'The sternal head is the larger central/lower portion of the pectoralis major; it is emphasized by flat and decline pressing and is important in strong horizontal pressing.',
-        exercises: ['Flat bench press', 'Cable crossover (low to high)'],
+        exercises: ['Bench press', 'Cable crossover (low to high)'],
         tips: 'Focus on full, controlled presses and maintain scapular stability.',
       },
       {
@@ -97,7 +97,7 @@ const muscles = {
         name: 'Pectoralis Minor',
         description:
           'A smaller muscle underneath the pectoralis major that stabilizes the scapula and assists in protraction; often involved in scapular mechanics and shoulder pain patterns.',
-        exercises: ['Scapular push-ups', 'Serratus punches (to support scapular control)'],
+        exercises: ['Scapular push-ups', 'Serratus punches'],
         tips: 'Work on scapular control and mobility; avoid pressing variations that provoke scapular discomfort.',
       },
     ],
@@ -109,7 +109,7 @@ const muscles = {
     description:
       'The large posterior muscles responsible for pulling, posture, and scapular control.',
     tips: 'Train pulling movements with full scapular retraction; maintain spinal neutrality.',
-    exercises: ['Pull-ups', 'Rows', 'Lat pulldown'],
+    exercises: ['Pull-ups', 'Seated Row', 'Lat pulldown'],
     contraindications: ['Avoid heavy rounding under load if lower-back pain exists'],
   },
 
@@ -139,7 +139,7 @@ const muscles = {
     description:
       'Large lower-body muscle groups producing locomotion, knee/hip extension, and power.',
     tips: 'Balance squat and hinge patterns; progress range of motion before heavy loading.',
-    exercises: ['Squat', 'Deadlift', 'Lunge', 'Calf raise'],
+    exercises: ['Back squat', 'Deadlift', 'Lunge', 'Calf raise'],
     contraindications: ['Modify heavy loading for knee or hip pathology'],
   },
 
@@ -208,7 +208,7 @@ const muscles = {
         name: 'Medial Head (Deep)',
         description:
           'The medial head lies deeper and contributes to elbow extension across varied positions; it is important for endurance work.',
-        exercises: ['Reverse-grip pushdown', 'Dumbbell kickback (light)'],
+        exercises: ['Reverse-grip pushdown', 'Dumbbell kickback'],
         tips: 'Higher-rep work and attention to full lockout can help target the medial head.',
       },
     ],
@@ -251,7 +251,7 @@ const muscles = {
       'Neck muscles support and move the head and stabilize the cervical spine; they include the sternocleidomastoid, scalenes, splenius and deep cervical extensors.',
     tips:
       'Prioritize posture, gentle mobility, and isometric strengthening; avoid high-velocity or heavy axial loading if symptomatic.',
-    exercises: ['Chin tuck (isometric)', 'Neck extension holds (light)', 'Scapular retractions for posture'],
+    exercises: ['Chin tuck (isometric)', 'Neck extension holds (light)', 'Scapular retraction rows'],
     contraindications: ['Avoid loaded cervical flexion/extension with radicular symptoms or acute instability'],
   },
 
@@ -281,7 +281,7 @@ const muscles = {
     description:
       'Paraspinal muscles that maintain spinal extension and segmental stability; critical for safe lifting and posture.',
     tips: 'Prioritize intra-abdominal bracing and progressive loading; avoid repeated unsupported flexion under load.',
-    exercises: ['Bird dog', 'Back extension (controlled)', 'Deadlift variations (technique-first)'],
+    exercises: ['Bird dog', 'Back extension (controlled)', 'Deadlift'],
     contraindications: ['Avoid ballistic spinal flexion with acute disc pathology'],
   },
 
@@ -311,7 +311,7 @@ const muscles = {
     description:
       'Inner-thigh muscles that bring the leg toward the midline and assist in hip stabilization and transfer of force.',
     tips: 'Include single-leg and adduction-specific work to reduce groin injury risk.',
-    exercises: ['Copenhagen adduction', 'Standing adductor machine', 'Sumo deadlift variant'],
+    exercises: ['Copenhagen adduction', 'Adductor machine', 'Sumo deadlift variant'],
     contraindications: ['Take care after groin strains; progress slowly'],
   },
 
@@ -323,7 +323,7 @@ const muscles = {
     tips:
       'Prioritize neuromuscular control and single-leg stability before heavy loading; progress banded work to loaded single-leg variations.',
     exercises: [
-      'Side-lying clamshells',
+      'Clamshells',
       'Banded lateral walk',
       'Single-leg Romanian deadlift',
       'Hip abduction machine',

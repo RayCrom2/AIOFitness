@@ -3,6 +3,7 @@ import HumanDiagram from './components/HumanDiagram'          // Male Front
 import HumanDiagramBack from './components/HumanDiagramBack'  // Male Back
 import HumanDiagramFemaleFront from './components/HumanDiagramFemaleFront'  // Female Front
 import HumanDiagramFemaleBack from './components/HumanDiagramFemaleBack'  // Female Back
+import Videos from './pages/Videos'
 import muscles from './data/muscles'
 
 export default function App() {
@@ -10,6 +11,7 @@ export default function App() {
   const [activePart, setActivePart] = useState(null)
   
   const [view, setView] = useState('front') // 'front' | 'back'
+  const [targetExercise, setTargetExercise] = useState(null)
   
   const diagramRef = useRef(null)
 
@@ -158,11 +160,27 @@ export default function App() {
         >
           Back (Female)
         </button>
+      <button
+          type="button"
+          onClick={() => setView('videos')}
+          style={{
+            padding: '6px 12px',
+            borderRadius: 999,
+            border: '1px solid #d1d5db',
+            background: view === 'videos' ? '#ff8c42' : '#fff',
+            color: view === 'videos' ? '#fff' : '#111',
+            cursor: 'pointer',
+          }}
+        >
+          Videos
+        </button>
       </div>
 
       <div className="layout" ref={diagramRef}>
-        {/* Conditionally render front or back diagram */}
-        {view === 'front' ? (
+        {/* Conditionally render front/back diagram or videos page */}
+        {view === 'videos' ? (
+          <Videos targetExercise={targetExercise} />
+        ) : view === 'front' ? (
           <HumanDiagram
             selected={selected}
             selectedSubpart={selected && activePart ? `${selected}.${activePart}` : selected}
@@ -175,6 +193,7 @@ export default function App() {
         ) : <HumanDiagramFemaleBack selected={selected} onSelect={handleSelect} />
         }
 
+        {view !== 'videos' && (
         <div className="info">
           <h2>
             <strong>{displayName}</strong>
@@ -246,7 +265,18 @@ export default function App() {
                           </p>
                           <ul>
                             {part.exercises.map((ex) => (
-                              <li key={ex}>{ex}</li>
+                              <li key={ex}>
+                                <a
+                                  href="#"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    setTargetExercise(ex)
+                                    setView('videos')
+                                  }}
+                                >
+                                  {ex}
+                                </a>
+                              </li>
                             ))}
                           </ul>
                         </>
@@ -261,7 +291,18 @@ export default function App() {
                   </p>
                   <ul>
                     {displayInfo.exercises.map((ex) => (
-                      <li key={ex}>{ex}</li>
+                      <li key={ex}>
+                        <a
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            setTargetExercise(ex)
+                            setView('videos')
+                          }}
+                        >
+                          {ex}
+                        </a>
+                      </li>
                     ))}
                   </ul>
                 </>
@@ -285,6 +326,7 @@ export default function App() {
             <p>No muscle selected. Click the diagram.</p>
           )}
         </div>
+        )}
       </div>
     </div>
   )
