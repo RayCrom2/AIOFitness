@@ -24,11 +24,11 @@ function todayStr() {
 export default function Nutrition() {
   const [entries, setEntries] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [saveToMyFoods, setSaveToMyFoods] = useState(false);
   const [savedFoods, setSavedFoods] = useState(() => {
     try { return JSON.parse(localStorage.getItem(MY_FOODS_KEY) || '[]'); } catch { return []; }
   });
   const [myFoodsOpen, setMyFoodsOpen] = useState(false);
+  const [myFoodsServings, setMyFoodsServings] = useState({});
   const [error, setError] = useState('');
   const [cardOrder, setCardOrder] = useState(() => {
     try {
@@ -48,6 +48,14 @@ export default function Nutrition() {
   });
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [servingSize, setServingSize] = useState('');
+  const [servingUnit, setServingUnit] = useState('g');
+  const [baseNutrients, setBaseNutrients] = useState(null);
+  const searchTimeout = useRef(null);
+  const searchRef = useRef(null);
 
   const orderedMacros = cardOrder.map(key => MACROS.find(m => m.key === key));
   const visibleOrderedMacros = orderedMacros.filter(m => visibleMacros.has(m.key));
@@ -57,6 +65,9 @@ export default function Nutrition() {
     function handleClickOutside(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         setMenuOpen(false);
+      }
+      if (searchRef.current && !searchRef.current.contains(e.target)) {
+        setShowDropdown(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -102,6 +113,97 @@ export default function Nutrition() {
     setDragOverIndex(null);
   }
 
+  function searchFood(query) {
+    clearTimeout(searchTimeout.current);
+    if (!query.trim() || query.length < 2) {
+      setSearchResults([]);
+      setShowDropdown(false);
+      return;
+    }
+    searchTimeout.current = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const key = import.meta.env.VITE_USDA_API_KEY;
+        const res = await fetch(
+          `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(query)}&pageSize=8&api_key=${key}`
+        );
+        const data = await res.json();
+        const results = (data.foods || []).map(food => {
+          const n = id => food.foodNutrients?.find(x => x.nutrientId === id)?.value ?? 0;
+          return {
+            fdcId: food.fdcId,
+            name: food.description,
+            brand: food.brandOwner || '',
+            calories: Math.round(n(1008)),
+            protein:  Math.round(n(1003) * 10) / 10,
+            carbs:    Math.round(n(1005) * 10) / 10,
+            fat:      Math.round(n(1004) * 10) / 10,
+            fiber:    Math.round(n(1079) * 10) / 10,
+            sugar:    Math.round(n(2000) * 10) / 10,
+          };
+        });
+        setSearchResults(results);
+        setShowDropdown(results.length > 0);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 400);
+  }
+
+  function handleSelectFood(food) {
+    const base = {
+      calories: food.calories,
+      protein:  food.protein,
+      carbs:    food.carbs,
+      fat:      food.fat,
+      fiber:    food.fiber,
+      sugar:    food.sugar,
+    };
+    setBaseNutrients(base);
+    setServingSize('100');
+    setForm({
+      name:     food.name,
+      calories: base.calories || '',
+      protein:  base.protein  || '',
+      carbs:    base.carbs    || '',
+      fat:      base.fat      || '',
+      fiber:    base.fiber    || '',
+      sugar:    base.sugar    || '',
+    });
+    setShowDropdown(false);
+    setSearchResults([]);
+  }
+
+  function applyServing(size, unit, base) {
+    if (!base || !size || isNaN(size)) return;
+    const grams = unit === 'oz' ? Number(size) * 28.3495 : Number(size);
+    const ratio = grams / 100;
+    const scale = (val) => Math.round(val * ratio * 10) / 10 || '';
+    setForm(f => ({
+      ...f,
+      calories: Math.round(base.calories * ratio) || '',
+      protein:  scale(base.protein),
+      carbs:    scale(base.carbs),
+      fat:      scale(base.fat),
+      fiber:    scale(base.fiber),
+      sugar:    scale(base.sugar),
+    }));
+  }
+
+  function handleServingChange(e) {
+    const size = e.target.value;
+    setServingSize(size);
+    applyServing(size, servingUnit, baseNutrients);
+  }
+
+  function handleUnitToggle() {
+    const nextUnit = servingUnit === 'g' ? 'oz' : 'g';
+    setServingUnit(nextUnit);
+    applyServing(servingSize, nextUnit, baseNutrients);
+  }
+
   // Load entries, reset if it's a new day
   useEffect(() => {
     const savedDate = localStorage.getItem(DATE_KEY);
@@ -126,8 +228,13 @@ export default function Nutrition() {
   }
 
   function handleChange(e) {
-    setForm(f => ({ ...f, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setForm(f => ({ ...f, [name]: value }));
     setError('');
+    if (name === 'name') {
+      searchFood(value);
+      setBaseNutrients(null);
+    }
   }
 
   function handleAdd(e) {
@@ -141,6 +248,8 @@ export default function Nutrition() {
       id: Date.now(),
       time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
       name: form.name.trim(),
+      servingSize: servingSize || '',
+      servingUnit: servingUnit,
       calories: Number(form.calories) || 0,
       protein:  Number(form.protein)  || 0,
       fat:      Number(form.fat)      || 0,
@@ -149,17 +258,30 @@ export default function Nutrition() {
       sugar:    Number(form.sugar)    || 0,
     };
     persist([...entries, entry]);
-    if (saveToMyFoods) {
-      const { id: _id, ...food } = entry;
-      const already = savedFoods.some(f => f.name.toLowerCase() === food.name.toLowerCase());
-      if (!already) {
-        const next = [...savedFoods, food];
-        setSavedFoods(next);
-        localStorage.setItem(MY_FOODS_KEY, JSON.stringify(next));
-      }
-    }
-    setSaveToMyFoods(false);
+    setBaseNutrients(null);
+    setServingSize('');
+    setServingUnit('g');
     setForm(EMPTY_FORM);
+  }
+
+  function handleSaveToMyFoods() {
+    if (!form.name.trim()) return;
+    const already = savedFoods.some(f => f.name.toLowerCase() === form.name.trim().toLowerCase());
+    if (already) return;
+    const food = {
+      name:     form.name.trim(),
+      calories: Number(form.calories) || 0,
+      protein:  Number(form.protein)  || 0,
+      fat:      Number(form.fat)      || 0,
+      carbs:    Number(form.carbs)    || 0,
+      fiber:    Number(form.fiber)    || 0,
+      sugar:    Number(form.sugar)    || 0,
+      refServingSize: servingSize,
+      refServingUnit: servingUnit,
+    };
+    const next = [...savedFoods, food];
+    setSavedFoods(next);
+    localStorage.setItem(MY_FOODS_KEY, JSON.stringify(next));
   }
 
   function handleDelete(id) {
@@ -170,14 +292,47 @@ export default function Nutrition() {
     if (window.confirm('Clear all entries for today?')) persist([]);
   }
 
+  function toGrams(size, unit) {
+    return unit === 'oz' ? Number(size) * 28.3495 : Number(size);
+  }
+
   function handleAddFromLibrary(food) {
+    const serving = myFoodsServings[food.name];
+    const currentSize = serving?.size;
+    const currentUnit = serving?.unit ?? food.refServingUnit ?? 'g';
+    const refSize = food.refServingSize;
+    const refUnit = food.refServingUnit ?? 'g';
+
+    let scaledFood = { ...food };
+    if (currentSize && refSize && Number(currentSize) > 0 && Number(refSize) > 0) {
+      const ratio = toGrams(currentSize, currentUnit) / toGrams(refSize, refUnit);
+      const scale = (val) => Math.round((val || 0) * ratio * 10) / 10;
+      scaledFood = {
+        ...food,
+        calories: Math.round((food.calories || 0) * ratio),
+        protein:  scale(food.protein),
+        carbs:    scale(food.carbs),
+        fat:      scale(food.fat),
+        fiber:    scale(food.fiber),
+        sugar:    scale(food.sugar),
+      };
+    }
+
     const now = new Date();
-    const entry = {
-      ...food,
+    persist([...entries, {
+      ...scaledFood,
       id: Date.now(),
       time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
-    };
-    persist([...entries, entry]);
+    }]);
+  }
+
+  function handleSaveEntryToMyFoods(entry) {
+    const already = savedFoods.some(f => f.name.toLowerCase() === entry.name.toLowerCase());
+    if (already) return;
+    const { id: _id, time: _time, servingSize: ss, servingUnit: su, ...macros } = entry;
+    const next = [...savedFoods, { ...macros, refServingSize: ss || '', refServingUnit: su || 'g' }];
+    setSavedFoods(next);
+    localStorage.setItem(MY_FOODS_KEY, JSON.stringify(next));
   }
 
   function handleDeleteSaved(name) {
@@ -273,17 +428,77 @@ export default function Nutrition() {
         <h3 style={{ marginTop: 0, marginBottom: 16, fontSize: 16 }}>Add Food</h3>
         <form onSubmit={handleAdd}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-            <input
-              name="name"
-              placeholder="Food name *"
-              value={form.name}
-              onChange={handleChange}
-              style={inputStyle({ flex: '2 1 180px' })}
-            />
+            <div ref={searchRef} style={{ flex: '2 1 180px', position: 'relative' }}>
+              <input
+                name="name"
+                placeholder="Food name *"
+                value={form.name}
+                onChange={handleChange}
+                onFocus={() => searchResults.length > 0 && setShowDropdown(true)}
+                style={inputStyle({ width: '100%', boxSizing: 'border-box' })}
+                autoComplete="off"
+              />
+              {searchLoading && (
+                <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: '#aaa' }}>
+                  searching…
+                </span>
+              )}
+              {showDropdown && (
+                <div style={{
+                  position: 'absolute', top: '110%', left: 0, right: 0, zIndex: 200,
+                  background: '#fff', borderRadius: 10,
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.13)',
+                  border: '1px solid #e8e8e8',
+                  maxHeight: 320, overflowY: 'auto',
+                }}>
+                  {searchResults.map(food => (
+                    <button
+                      key={food.fdcId}
+                      type="button"
+                      onClick={() => handleSelectFood(food)}
+                      style={{
+                        display: 'block', width: '100%', textAlign: 'left',
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        padding: '10px 14px', borderBottom: '1px solid #f0f0f0',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#fff8f3'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                    >
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{food.name}</div>
+                      <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>
+                        {food.calories} kcal · {food.protein}g protein · {food.carbs}g carbs · {food.fat}g fat
+                        {food.brand && <span> · {food.brand}</span>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 150px' }}>
+              <input
+                type="number"
+                min="0.1"
+                step="any"
+                placeholder="Serving size"
+                value={servingSize}
+                onChange={handleServingChange}
+                style={inputStyle({ flex: 1, minWidth: 0 })}
+              />
+              <button
+                type="button"
+                onClick={handleUnitToggle}
+                style={{
+                  background: '#f0f0f0', border: 'none', borderRadius: 6,
+                  padding: '7px 10px', cursor: 'pointer', fontSize: 12,
+                  fontWeight: 600, color: '#555', whiteSpace: 'nowrap',
+                }}
+              >{servingUnit}</button>
+            </div>
             <input
               name="calories"
               type="number"
               min="0"
+              step="any"
               placeholder="Calories *"
               value={form.calories}
               onChange={handleChange}
@@ -293,6 +508,7 @@ export default function Nutrition() {
               name="protein"
               type="number"
               min="0"
+              step="any"
               placeholder="Protein (g)"
               value={form.protein}
               onChange={handleChange}
@@ -302,6 +518,7 @@ export default function Nutrition() {
               name="carbs"
               type="number"
               min="0"
+              step="any"
               placeholder="Carbs (g)"
               value={form.carbs}
               onChange={handleChange}
@@ -311,6 +528,7 @@ export default function Nutrition() {
               name="fat"
               type="number"
               min="0"
+              step="any"
               placeholder="Fat (g)"
               value={form.fat}
               onChange={handleChange}
@@ -320,6 +538,7 @@ export default function Nutrition() {
               name="fiber"
               type="number"
               min="0"
+              step="any"
               placeholder="Fiber (g)"
               value={form.fiber}
               onChange={handleChange}
@@ -329,6 +548,7 @@ export default function Nutrition() {
               name="sugar"
               type="number"
               min="0"
+              step="any"
               placeholder="Sugar (g)"
               value={form.sugar}
               onChange={handleChange}
@@ -344,15 +564,18 @@ export default function Nutrition() {
             }}>
               + Add Entry
             </button>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: '#666', cursor: 'pointer', userSelect: 'none' }}>
-              <input
-                type="checkbox"
-                checked={saveToMyFoods}
-                onChange={e => setSaveToMyFoods(e.target.checked)}
-                style={{ accentColor: '#ff8c42', width: 15, height: 15, cursor: 'pointer' }}
-              />
-              Save to My Foods
-            </label>
+            <button
+              type="button"
+              onClick={handleSaveToMyFoods}
+              disabled={!form.name.trim() || savedFoods.some(f => f.name.toLowerCase() === form.name.trim().toLowerCase())}
+              style={{
+                background: 'none', border: '1px solid #ddd', borderRadius: 8,
+                padding: '9px 18px', cursor: 'pointer', fontSize: 14, color: '#555',
+                fontWeight: 500, opacity: (!form.name.trim() || savedFoods.some(f => f.name.toLowerCase() === form.name.trim().toLowerCase())) ? 0.4 : 1,
+              }}
+            >
+              {savedFoods.some(f => f.name.toLowerCase() === form.name.trim().toLowerCase()) ? 'Already in My Foods' : 'Save to My Foods'}
+            </button>
           </div>
         </form>
       </div>
@@ -377,41 +600,86 @@ export default function Nutrition() {
             </p>
           ) : (
             <div style={{ padding: '0 16px 16px' }}>
-              {savedFoods.map(food => (
-                <div key={food.name} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '9px 10px', borderRadius: 8, marginBottom: 6,
-                  background: '#fafafa', border: '1px solid #f0f0f0',
-                }}>
-                  <div>
-                    <span style={{ fontWeight: 600, fontSize: 14 }}>{food.name}</span>
-                    <span style={{ fontSize: 12, color: '#aaa', marginLeft: 10 }}>
-                      {food.calories} kcal
-                      {food.protein > 0 && ` · ${food.protein}g protein`}
-                      {food.carbs > 0 && ` · ${food.carbs}g carbs`}
-                      {food.fat > 0 && ` · ${food.fat}g fat`}
-                    </span>
+              {savedFoods.map(food => {
+                const serving = myFoodsServings[food.name];
+                const currentSize = serving?.size ?? food.refServingSize ?? '';
+                const currentUnit = serving?.unit ?? food.refServingUnit ?? 'g';
+                const refSize = food.refServingSize;
+                const refUnit = food.refServingUnit ?? 'g';
+
+                let preview = { calories: food.calories, protein: food.protein, carbs: food.carbs, fat: food.fat };
+                if (currentSize && refSize && Number(currentSize) > 0 && Number(refSize) > 0) {
+                  const ratio = toGrams(currentSize, currentUnit) / toGrams(refSize, refUnit);
+                  preview = {
+                    calories: Math.round((food.calories || 0) * ratio),
+                    protein:  Math.round((food.protein  || 0) * ratio * 10) / 10,
+                    carbs:    Math.round((food.carbs    || 0) * ratio * 10) / 10,
+                    fat:      Math.round((food.fat      || 0) * ratio * 10) / 10,
+                  };
+                }
+
+                return (
+                  <div key={food.name} style={{
+                    padding: '10px 12px', borderRadius: 8, marginBottom: 6,
+                    background: '#fafafa', border: '1px solid #f0f0f0',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <div>
+                        <span style={{ fontWeight: 600, fontSize: 14 }}>{food.name}</span>
+                        {refSize && (
+                          <span style={{ fontSize: 11, color: '#bbb', marginLeft: 8 }}>
+                            ref: {refSize}{refUnit}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleDeleteSaved(food.name)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', fontSize: 16, lineHeight: 1, padding: '2px 4px' }}
+                        title="Remove from My Foods"
+                      >✕</button>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <input
+                        type="number"
+                        min="0.1"
+                        step="any"
+                        placeholder={`Amount (${currentUnit})`}
+                        value={currentSize}
+                        onChange={e => setMyFoodsServings(prev => ({
+                          ...prev,
+                          [food.name]: { size: e.target.value, unit: currentUnit },
+                        }))}
+                        style={inputStyle({ width: 90 })}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setMyFoodsServings(prev => ({
+                          ...prev,
+                          [food.name]: { size: currentSize, unit: currentUnit === 'g' ? 'oz' : 'g' },
+                        }))}
+                        style={{
+                          background: '#f0f0f0', border: 'none', borderRadius: 6,
+                          padding: '7px 10px', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#555',
+                        }}
+                      >{currentUnit}</button>
+                      <span style={{ fontSize: 12, color: '#aaa' }}>
+                        {preview.calories} kcal
+                        {preview.protein > 0 && ` · ${preview.protein}g protein`}
+                        {preview.carbs > 0 && ` · ${preview.carbs}g carbs`}
+                        {preview.fat > 0 && ` · ${preview.fat}g fat`}
+                      </span>
+                      <button
+                        onClick={() => handleAddFromLibrary(food)}
+                        style={{
+                          background: '#ff8c42', color: '#fff', border: 'none',
+                          borderRadius: 6, padding: '5px 12px', cursor: 'pointer',
+                          fontSize: 12, fontWeight: 600, marginLeft: 'auto',
+                        }}
+                      >+ Add</button>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    <button
-                      onClick={() => handleAddFromLibrary(food)}
-                      style={{
-                        background: '#ff8c42', color: '#fff', border: 'none',
-                        borderRadius: 6, padding: '5px 12px', cursor: 'pointer',
-                        fontSize: 12, fontWeight: 600,
-                      }}
-                    >+ Add</button>
-                    <button
-                      onClick={() => handleDeleteSaved(food.name)}
-                      style={{
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        color: '#ccc', fontSize: 16, lineHeight: 1, padding: '4px 6px',
-                      }}
-                      title="Remove from My Foods"
-                    >✕</button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )
         )}
@@ -451,7 +719,14 @@ export default function Nutrition() {
               <tbody>
                 {entries.map((entry, i) => (
                   <tr key={entry.id} style={{ borderTop: '1px solid #f0f0f0', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                    <td style={{ padding: '10px 16px', fontWeight: 500 }}>{entry.name}</td>
+                    <td style={{ padding: '10px 16px', fontWeight: 500 }}>
+                      {entry.name}
+                      {entry.servingSize && (
+                        <div style={{ fontSize: 11, color: '#bbb', fontWeight: 400, marginTop: 2 }}>
+                          {entry.servingSize}{entry.servingUnit}
+                        </div>
+                      )}
+                    </td>
                     {visibleMacroList.map(m => (
                       <td key={m.key} style={{ padding: '10px 16px', textAlign: 'center', color: m.key === 'calories' ? '#ff8c42' : '#333', fontWeight: m.key === 'calories' ? 600 : 400 }}>
                         {entry[m.key] > 0 ? (m.key === 'calories' ? entry[m.key] : entry[m.key].toFixed(1)) : <span style={{ color: '#ddd' }}>—</span>}
@@ -460,7 +735,20 @@ export default function Nutrition() {
                     <td style={{ padding: '10px 16px', textAlign: 'center', color: '#aaa', fontSize: 12, whiteSpace: 'nowrap' }}>
                       {entry.time || '—'}
                     </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                    <td style={{ padding: '10px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      <button
+                        onClick={() => handleSaveEntryToMyFoods(entry)}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: '#bbb', lineHeight: 1, padding: 4,
+                          visibility: savedFoods.some(f => f.name.toLowerCase() === entry.name.toLowerCase()) ? 'hidden' : 'visible',
+                        }}
+                        title="Save to My Foods"
+                      >
+                        <svg width="13" height="15" viewBox="0 0 13 15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
+                          <path d="M1.5 1.5h10v12l-5-3-5 3V1.5z" />
+                        </svg>
+                      </button>
                       <button onClick={() => handleDelete(entry.id)} style={{
                         background: 'none', border: 'none', cursor: 'pointer',
                         color: '#ccc', fontSize: 16, lineHeight: 1, padding: 4,
