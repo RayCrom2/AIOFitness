@@ -1,32 +1,19 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import muscles from '../data/muscles.js';
 
 const ROUTINES_KEY = 'exercise_routines';
-const LOG_KEY      = 'exercise_log';
-const DATE_KEY     = 'exercise_date';
 
-const EMPTY = { name: '', sets: '', reps: '', weight: '', unit: 'lbs', rir: '' };
+// Deduplicated list of all exercises from muscles.js
+const ALL_EXERCISES = [...new Set(
+  Object.values(muscles).flatMap(m => [
+    ...(m.exercises || []),
+    ...(m.parts || []).flatMap(p => p.exercises || []),
+  ])
+)].sort();
 
-function todayStr() { return new Date().toISOString().slice(0, 10); }
-function vol(e) {
-  const w = Number(e.weight);
-  return w > 0 ? Number(e.sets) * Number(e.reps) * w : 0;
-}
-function makeEntry(f) {
-  return {
-    id:     Date.now(),
-    time:   new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
-    name:   String(f.name).trim(),
-    sets:   Number(f.sets)  || 1,
-    reps:   Number(f.reps)  || 1,
-    weight: (f.weight !== '' && f.weight != null) ? Number(f.weight) : null,
-    unit:   f.unit || 'lbs',
-    rir:    (f.rir !== '' && f.rir != null) ? Number(f.rir) : null,
-  };
-}
 
 export default function ExerciseLogger() {
-  // ── view
-  const [view, setView] = useState('select'); // 'select' | 'create' | 'session'
+  const [view, setView] = useState('select');
 
   // ── routines (persisted)
   const [routines, setRoutines] = useState(() => {
@@ -34,115 +21,214 @@ export default function ExerciseLogger() {
   });
 
   // ── create-routine state
-  const [cName,  setCName]  = useState('');
-  const [cExs,   setCExs]   = useState([]);
-  const [cForm,  setCForm]  = useState(EMPTY);
-  const [cError, setCError] = useState('');
+  // cExs shape: [{ name, unit, sets: [{ reps, weight, rir }] }]
+  const [cName,         setCName]         = useState('');
+  const [cExs,          setCExs]          = useState([]);
+  const [cSearch,       setCSearch]       = useState('');
+  const [cDropdownOpen, setCDropdownOpen] = useState(false);
+  const [cError,        setCError]        = useState('');
+  const cSearchRef = useRef(null);
 
   // ── session state
-  const [sessionName,    setSessionName]    = useState('');
-  const [sessionSource,  setSessionSource]  = useState('free');
-  const [sessionRoutine, setSessionRoutine] = useState(null);
-  const [entries,        setEntries]        = useState([]);
-  const [sForm,          setSForm]          = useState(EMPTY);
-  const [sError,         setSError]         = useState('');
-  const [planOpen,       setPlanOpen]       = useState(true);
-  const [ending,         setEnding]         = useState(false);
-  const [saveName,       setSaveName]       = useState('');
+  // sessionExs shape: [{ name, unit, sets: [{ reps, weight, rir, done }] }]
+  const [sessionName,   setSessionName]   = useState('');
+  const [sessionSource, setSessionSource] = useState('free');
+  const [sessionExs,    setSessionExs]    = useState([]);
+  const [sSearch,       setSSearch]       = useState('');
+  const [sDropdownOpen, setSDropdownOpen] = useState(false);
+  const [ending,        setEnding]        = useState(false);
+  const [saveName,      setSaveName]      = useState('');
+  const sSearchRef = useRef(null);
 
-  const totalSets = entries.reduce((s, e) => s + e.sets, 0);
-  const totalVol  = entries.reduce((s, e) => s + vol(e), 0);
-  const uniqueEx  = new Set(entries.map(e => e.name)).size;
+  // Derived session stats — only count sets marked done
+  const doneSets  = sessionExs.flatMap(ex => ex.sets.filter(s => s.done));
+  const totalSets = doneSets.length;
+  const uniqueEx  = new Set(
+    sessionExs.filter(ex => ex.sets.some(s => s.done)).map(ex => ex.name)
+  ).size;
+  const totalVol  = doneSets.reduce((sum, s) => {
+    const w = Number(s.weight), r = Number(s.reps);
+    return sum + (w > 0 && r > 0 ? w * r : 0);
+  }, 0);
+
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+  // Close both search dropdowns on outside click
+  useEffect(() => {
+    function handleClick(e) {
+      if (cSearchRef.current && !cSearchRef.current.contains(e.target)) setCDropdownOpen(false);
+      if (sSearchRef.current && !sSearchRef.current.contains(e.target)) setSDropdownOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   // ── helpers
   function persistRoutines(next) {
     setRoutines(next);
     localStorage.setItem(ROUTINES_KEY, JSON.stringify(next));
   }
-  function persistEntries(next) {
-    setEntries(next);
-    localStorage.setItem(DATE_KEY, todayStr());
-    localStorage.setItem(LOG_KEY, JSON.stringify(next));
-  }
 
   // ── select actions
   function goCreate() {
-    setCName(''); setCExs([]); setCForm(EMPTY); setCError('');
+    setCName(''); setCExs([]); setCSearch(''); setCDropdownOpen(false); setCError('');
     setView('create');
   }
   function goFreeSession() {
     setSessionName('New Workout'); setSessionSource('free');
-    setSessionRoutine(null); setEntries([]); setSForm(EMPTY); setSError('');
+    setSessionExs([]); setSSearch(''); setSDropdownOpen(false);
     setEnding(false); setSaveName('');
     setView('session');
   }
   function goRoutineSession(r) {
     setSessionName(r.name); setSessionSource('routine');
-    setSessionRoutine(r); setEntries([]); setSForm(EMPTY); setSError('');
-    setPlanOpen(true); setEnding(false); setSaveName(r.name);
+    // Pre-populate exercise cards from the saved routine
+    const initialExs = r.exercises.map(ex => {
+      const sets = Array.isArray(ex.sets)
+        ? ex.sets.map(s => ({
+            reps:   String(s.reps   != null ? s.reps   : ''),
+            weight: String(s.weight != null ? s.weight : ''),
+            rir:    String(s.rir    != null ? s.rir    : ''),
+            done:   false,
+          }))
+        : [{ reps: String(ex.reps || ''), weight: String(ex.weight != null ? ex.weight : ''), rir: String(ex.rir != null ? ex.rir : ''), done: false }];
+      return { name: ex.name, unit: ex.unit || 'lbs', sets };
+    });
+    setSessionExs(initialExs);
+    setSSearch(''); setSDropdownOpen(false);
+    setEnding(false); setSaveName(r.name);
     setView('session');
   }
   function deleteRoutine(id) {
     if (window.confirm('Delete this routine?')) persistRoutines(routines.filter(r => r.id !== id));
   }
 
-  // ── create-routine actions
-  function cAddEx(e) {
+  // ── create-routine: search
+  const cSearchResults = cSearch.trim()
+    ? ALL_EXERCISES.filter(ex => ex.toLowerCase().includes(cSearch.toLowerCase()))
+    : [];
+
+  function cAddExercise(name) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (cExs.some(e => e.name.toLowerCase() === trimmed.toLowerCase())) {
+      setCSearch(''); setCDropdownOpen(false); return;
+    }
+    setCExs(prev => [...prev, { name: trimmed, unit: 'lbs', sets: [{ reps: '', weight: '', rir: '' }] }]);
+    setCSearch(''); setCDropdownOpen(false); setCError('');
+  }
+  function cHandleSearchKey(e) {
+    if (e.key !== 'Enter') return;
     e.preventDefault();
-    if (!cForm.name.trim()) { setCError('Exercise name is required.'); return; }
-    setCExs(prev => [...prev, {
-      name:   cForm.name.trim(),
-      sets:   Number(cForm.sets)  || 3,
-      reps:   Number(cForm.reps)  || 10,
-      weight: cForm.weight !== '' ? Number(cForm.weight) : null,
-      unit:   cForm.unit,
-      rir:    cForm.rir !== ''    ? Number(cForm.rir) : null,
-    }]);
-    setCForm(EMPTY); setCError('');
+    if (cSearchResults.length > 0) cAddExercise(cSearchResults[0]);
+    else if (cSearch.trim()) cAddExercise(cSearch);
+  }
+  function cAddSet(exIdx) {
+    setCExs(prev => prev.map((ex, i) => {
+      if (i !== exIdx) return ex;
+      return { ...ex, sets: [...ex.sets, { ...ex.sets[ex.sets.length - 1] }] };
+    }));
+  }
+  function cRemoveSet(exIdx, setIdx) {
+    setCExs(prev => prev.map((ex, i) => {
+      if (i !== exIdx || ex.sets.length <= 1) return ex;
+      return { ...ex, sets: ex.sets.filter((_, j) => j !== setIdx) };
+    }));
+  }
+  function cUpdateSet(exIdx, setIdx, field, value) {
+    setCExs(prev => prev.map((ex, i) => {
+      if (i !== exIdx) return ex;
+      return { ...ex, sets: ex.sets.map((s, j) => j !== setIdx ? s : { ...s, [field]: value }) };
+    }));
+  }
+  function cUpdateUnit(exIdx, value) {
+    setCExs(prev => prev.map((ex, i) => i !== exIdx ? ex : { ...ex, unit: value }));
+  }
+  function cRemoveEx(exIdx) {
+    setCExs(prev => prev.filter((_, i) => i !== exIdx));
   }
   function cSave() {
     if (!cName.trim())     { setCError('Routine name is required.'); return; }
     if (cExs.length === 0) { setCError('Add at least one exercise.'); return; }
-    persistRoutines([...routines, { id: String(Date.now()), name: cName.trim(), exercises: cExs }]);
+    const exercises = cExs.map(ex => ({
+      name: ex.name,
+      unit: ex.unit,
+      sets: ex.sets.map(s => ({
+        reps:   Number(s.reps)  || 1,
+        weight: s.weight !== '' ? Number(s.weight) : null,
+        rir:    s.rir    !== '' ? Number(s.rir)    : null,
+      })),
+    }));
+    persistRoutines([...routines, { id: String(Date.now()), name: cName.trim(), exercises }]);
     setView('select');
   }
 
-  // ── session actions
-  function sAdd(e) {
-    e.preventDefault();
-    if (!sForm.name.trim())                    { setSError('Exercise name is required.'); return; }
-    if (!sForm.sets || Number(sForm.sets) < 1) { setSError('Enter a valid number of sets.'); return; }
-    if (!sForm.reps || Number(sForm.reps) < 1) { setSError('Enter a valid number of reps.'); return; }
-    if (sForm.rir !== '' && (isNaN(Number(sForm.rir)) || Number(sForm.rir) < 0 || Number(sForm.rir) > 10)) {
-      setSError('RIR must be 0–10.'); return;
+  // ── session: search
+  const sSearchResults = sSearch.trim()
+    ? ALL_EXERCISES.filter(ex => ex.toLowerCase().includes(sSearch.toLowerCase()))
+    : [];
+
+  function sAddExercise(name) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (sessionExs.some(e => e.name.toLowerCase() === trimmed.toLowerCase())) {
+      setSSearch(''); setSDropdownOpen(false); return;
     }
-    persistEntries([...entries, makeEntry(sForm)]);
-    setSForm(EMPTY); setSError('');
+    setSessionExs(prev => [...prev, { name: trimmed, unit: 'lbs', sets: [{ reps: '', weight: '', rir: '', done: false }] }]);
+    setSSearch(''); setSDropdownOpen(false);
   }
-  function logFromPlan(ex) { persistEntries([...entries, makeEntry(ex)]); }
-  function prefillFromPlan(ex) {
-    setSForm({
-      name:   ex.name,
-      sets:   String(ex.sets),
-      reps:   String(ex.reps),
-      weight: ex.weight != null ? String(ex.weight) : '',
-      unit:   ex.unit || 'lbs',
-      rir:    ex.rir  != null ? String(ex.rir) : '',
-    });
-    setSError('');
+  function sHandleSearchKey(e) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (sSearchResults.length > 0) sAddExercise(sSearchResults[0]);
+    else if (sSearch.trim()) sAddExercise(sSearch);
   }
-  function deleteEntry(id) { persistEntries(entries.filter(e => e.id !== id)); }
+  function sAddSet(exIdx) {
+    setSessionExs(prev => prev.map((ex, i) => {
+      if (i !== exIdx) return ex;
+      const last = ex.sets[ex.sets.length - 1];
+      return { ...ex, sets: [...ex.sets, { ...last, done: false }] };
+    }));
+  }
+  function sRemoveSet(exIdx, setIdx) {
+    setSessionExs(prev => prev.map((ex, i) => {
+      if (i !== exIdx || ex.sets.length <= 1) return ex;
+      return { ...ex, sets: ex.sets.filter((_, j) => j !== setIdx) };
+    }));
+  }
+  function sUpdateSet(exIdx, setIdx, field, value) {
+    setSessionExs(prev => prev.map((ex, i) => {
+      if (i !== exIdx) return ex;
+      return { ...ex, sets: ex.sets.map((s, j) => j !== setIdx ? s : { ...s, [field]: value }) };
+    }));
+  }
+  function sToggleDone(exIdx, setIdx) {
+    setSessionExs(prev => prev.map((ex, i) => {
+      if (i !== exIdx) return ex;
+      return { ...ex, sets: ex.sets.map((s, j) => j !== setIdx ? s : { ...s, done: !s.done }) };
+    }));
+  }
+  function sUpdateUnit(exIdx, value) {
+    setSessionExs(prev => prev.map((ex, i) => i !== exIdx ? ex : { ...ex, unit: value }));
+  }
+  function sRemoveEx(exIdx) {
+    setSessionExs(prev => prev.filter((_, i) => i !== exIdx));
+  }
   function doSaveAsRoutine() {
     if (!saveName.trim()) return;
-    const seen = new Set();
-    const exercises = entries
-      .filter(e => { if (seen.has(e.name)) return false; seen.add(e.name); return true; })
-      .map(({ id: _id, time: _t, ...ex }) => ex);
+    const exercises = sessionExs.map(ex => ({
+      name: ex.name,
+      unit: ex.unit,
+      sets: ex.sets.map(({ done: _, ...s }) => ({
+        reps:   Number(s.reps)  || 1,
+        weight: s.weight !== '' ? Number(s.weight) : null,
+        rir:    s.rir    !== '' ? Number(s.rir)    : null,
+      })),
+    }));
     persistRoutines([...routines, { id: String(Date.now()), name: saveName.trim(), exercises }]);
     finishSession();
   }
-  function finishSession() { setView('select'); setEnding(false); setEntries([]); }
+  function finishSession() { setView('select'); setEnding(false); setSessionExs([]); }
 
   // ═══════════════════════════════════════════════
   // SELECT VIEW
@@ -153,7 +239,6 @@ export default function ExerciseLogger() {
       <p style={{ color: '#888', marginBottom: 24, fontSize: 14 }}>{today}</p>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, marginBottom: 32 }}>
-        {/* Create routine card */}
         <button
           onClick={goCreate}
           style={{ background: '#fff', border: '2px dashed #e0e0e0', borderRadius: 12, padding: '28px 24px', cursor: 'pointer', textAlign: 'left', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}
@@ -164,7 +249,6 @@ export default function ExerciseLogger() {
           <div style={{ fontSize: 16, fontWeight: 700, color: '#333' }}>Create Routine</div>
           <div style={{ fontSize: 13, color: '#aaa', marginTop: 6, lineHeight: 1.4 }}>Build a named template with exercises to reuse later</div>
         </button>
-        {/* New workout card */}
         <button
           onClick={goFreeSession}
           style={{ background: '#ff8c42', border: 'none', borderRadius: 12, padding: '28px 24px', cursor: 'pointer', textAlign: 'left', boxShadow: '0 4px 16px rgba(255,140,66,0.35)' }}
@@ -175,7 +259,6 @@ export default function ExerciseLogger() {
         </button>
       </div>
 
-      {/* Saved routines */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Routines</span>
         <span style={{ fontSize: 12, color: '#ccc' }}>({routines.length})</span>
@@ -199,13 +282,8 @@ export default function ExerciseLogger() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-              <button onClick={() => goRoutineSession(r)} style={{
-                background: '#ff8c42', color: '#fff', border: 'none',
-                borderRadius: 7, padding: '7px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 13,
-              }}>▶ Start</button>
-              <button onClick={() => deleteRoutine(r.id)} style={{
-                background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', fontSize: 16, padding: '4px 6px',
-              }} title="Delete routine">✕</button>
+              <button onClick={() => goRoutineSession(r)} style={{ background: '#ff8c42', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 16px', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>▶ Start</button>
+              <button onClick={() => deleteRoutine(r.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', fontSize: 16, padding: '4px 6px' }} title="Delete routine">✕</button>
             </div>
           </div>
         ))
@@ -235,65 +313,57 @@ export default function ExerciseLogger() {
         />
       </div>
 
-      {/* Add exercise */}
-      <div style={{ background: '#fff', borderRadius: 10, padding: '20px 24px', boxShadow: '0 4px 14px rgba(0,0,0,0.07)', marginBottom: 20 }}>
-        <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Add Exercise</h3>
-        <form onSubmit={cAddEx}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-            <input name="name" placeholder="Exercise name *" value={cForm.name}
-              onChange={e => setCForm(f => ({ ...f, name: e.target.value }))}
-              style={inputStyle({ flex: '3 1 200px' })} />
-            <input name="sets" type="number" min="1" placeholder="Sets" value={cForm.sets}
-              onChange={e => setCForm(f => ({ ...f, sets: e.target.value }))}
-              style={inputStyle({ flex: '1 1 70px' })} />
-            <input name="reps" type="number" min="1" placeholder="Reps" value={cForm.reps}
-              onChange={e => setCForm(f => ({ ...f, reps: e.target.value }))}
-              style={inputStyle({ flex: '1 1 70px' })} />
-            <div style={{ display: 'flex', gap: 6, flex: '2 1 150px' }}>
-              <input name="weight" type="number" min="0" step="0.5" placeholder="Weight" value={cForm.weight}
-                onChange={e => setCForm(f => ({ ...f, weight: e.target.value }))}
-                style={inputStyle({ flex: 1, minWidth: 0 })} />
-              <select name="unit" value={cForm.unit} onChange={e => setCForm(f => ({ ...f, unit: e.target.value }))}
-                style={{ ...inputStyle(), padding: '9px 8px', cursor: 'pointer', width: 58, flexShrink: 0 }}>
-                <option value="lbs">lbs</option>
-                <option value="kg">kg</option>
-              </select>
+      {/* Exercise search */}
+      <div style={{ background: '#fff', borderRadius: 10, padding: '16px 20px', boxShadow: '0 4px 14px rgba(0,0,0,0.07)', marginBottom: 16 }}>
+        <div ref={cSearchRef} style={{ position: 'relative' }}>
+          <input
+            value={cSearch}
+            onChange={e => { setCSearch(e.target.value); setCDropdownOpen(true); setCError(''); }}
+            onKeyDown={cHandleSearchKey}
+            onFocus={() => setCDropdownOpen(true)}
+            placeholder="Search exercises or type a custom name…"
+            style={inputStyle({ width: '100%', boxSizing: 'border-box', paddingLeft: 36 })}
+          />
+          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, pointerEvents: 'none', color: '#aaa' }}>🔍</span>
+          {cDropdownOpen && cSearch.trim() && (
+            <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: '#fff', border: '1px solid #e8e8e8', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.1)', zIndex: 100, maxHeight: 220, overflowY: 'auto' }}>
+              {cSearchResults.length > 0 ? (
+                cSearchResults.map(ex => (
+                  <button key={ex} onMouseDown={e => { e.preventDefault(); cAddExercise(ex); }}
+                    style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '10px 14px', cursor: 'pointer', fontSize: 14, color: '#333', display: 'block' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#fff8f2'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                  >{ex}</button>
+                ))
+              ) : (
+                <button onMouseDown={e => { e.preventDefault(); cAddExercise(cSearch); }}
+                  style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '10px 14px', cursor: 'pointer', fontSize: 14, color: '#ff8c42', display: 'block' }}
+                >+ Add &ldquo;{cSearch}&rdquo; as custom exercise</button>
+              )}
             </div>
-            <input name="rir" type="number" min="0" max="10" placeholder="RIR (optional)" value={cForm.rir}
-              onChange={e => setCForm(f => ({ ...f, rir: e.target.value }))}
-              style={inputStyle({ flex: '1 1 120px' })} />
-          </div>
-          {cError && <p style={{ color: '#e05c5c', margin: '0 0 10px', fontSize: 13 }}>{cError}</p>}
-          <button type="submit" style={{ background: '#4f8ef7', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 22px', fontWeight: 600, cursor: 'pointer', fontSize: 14 }}>
-            + Add Exercise
-          </button>
-        </form>
+          )}
+        </div>
       </div>
 
-      {/* Exercise list preview */}
+      {/* Exercise cards */}
       {cExs.length > 0 && (
-        <div style={{ background: '#fff', borderRadius: 10, padding: '20px 24px', boxShadow: '0 4px 14px rgba(0,0,0,0.07)', marginBottom: 24 }}>
-          <h3 style={{ margin: '0 0 14px', fontSize: 16 }}>Exercises ({cExs.length})</h3>
-          {cExs.map((ex, i) => (
-            <div key={i} style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '9px 12px', borderRadius: 8, marginBottom: 6,
-              background: '#fafafa', border: '1px solid #f0f0f0',
-            }}>
-              <div>
-                <span style={{ fontWeight: 600, fontSize: 14 }}>{ex.name}</span>
-                <span style={{ fontSize: 12, color: '#aaa', marginLeft: 10 }}>
-                  {ex.sets}×{ex.reps}
-                  {ex.weight != null && ` @ ${ex.weight} ${ex.unit}`}
-                  {ex.rir  != null && ` · RIR ${ex.rir}`}
-                </span>
-              </div>
-              <button onClick={() => setCExs(prev => prev.filter((_, idx) => idx !== i))}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', fontSize: 16, padding: '2px 6px' }}>✕</button>
-            </div>
+        <div style={{ marginBottom: 24 }}>
+          {cExs.map((ex, exIdx) => (
+            <ExerciseCard
+              key={exIdx}
+              ex={ex}
+              showDone={false}
+              onUpdateSet={(si, field, val) => cUpdateSet(exIdx, si, field, val)}
+              onRemoveSet={si => cRemoveSet(exIdx, si)}
+              onAddSet={() => cAddSet(exIdx)}
+              onUpdateUnit={val => cUpdateUnit(exIdx, val)}
+              onRemove={() => cRemoveEx(exIdx)}
+            />
           ))}
         </div>
       )}
+
+      {cError && <p style={{ color: '#e05c5c', margin: '0 0 12px', fontSize: 13 }}>{cError}</p>}
 
       <button onClick={cSave} style={{ background: '#ff8c42', color: '#fff', border: 'none', borderRadius: 10, padding: '12px 32px', fontWeight: 700, cursor: 'pointer', fontSize: 15 }}>
         Save Routine
@@ -306,12 +376,12 @@ export default function ExerciseLogger() {
   // ═══════════════════════════════════════════════
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 8px' }}>
-      {/* Session header */}
+      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
           <h2 style={{ margin: 0 }}>{sessionName}</h2>
           {sessionSource === 'routine' && (
-            <span style={{ fontSize: 11, fontWeight: 600, background: '#f0f4ff', color: '#4f8ef7', borderRadius: 5, padding: '3px 8px' }}>ROUTINE</span>
+            <span style={{ fontSize: 11, fontWeight: 600, background: '#f0f4ff', color: '#4f8ef7', borderRadius: 5, padding: '3px 8px', flexShrink: 0 }}>ROUTINE</span>
           )}
         </div>
         {!ending && (
@@ -329,10 +399,10 @@ export default function ExerciseLogger() {
             <div>
               <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Finish Workout</h3>
               <p style={{ margin: 0, fontSize: 13, color: '#888' }}>
-                {uniqueEx} exercise{uniqueEx !== 1 ? 's' : ''} · {totalSets} sets{totalVol > 0 ? ` · ${totalVol.toLocaleString()} vol` : ''}
+                {uniqueEx} exercise{uniqueEx !== 1 ? 's' : ''} · {totalSets} set{totalSets !== 1 ? 's' : ''} completed{totalVol > 0 ? ` · ${totalVol.toLocaleString()} vol` : ''}
               </p>
             </div>
-            <button onClick={() => setEnding(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', fontSize: 20, lineHeight: 1, padding: 4 }} title="Keep logging">✕</button>
+            <button onClick={() => setEnding(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', fontSize: 20, lineHeight: 1, padding: 4 }}>✕</button>
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
             <input
@@ -356,9 +426,9 @@ export default function ExerciseLogger() {
       {/* Summary cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
         {[
-          { label: 'Exercises', value: uniqueEx,                                              sub: 'unique',         color: '#ff8c42' },
-          { label: 'Total Sets', value: totalSets,                                             sub: 'sets this session', color: '#4f8ef7' },
-          { label: 'Volume',     value: totalVol > 0 ? totalVol.toLocaleString() : '—',       sub: 'weighted only',  color: '#5cb85c' },
+          { label: 'Exercises',  value: uniqueEx,                                        sub: 'with completed sets', color: '#ff8c42' },
+          { label: 'Sets Done',  value: totalSets,                                       sub: 'sets completed',      color: '#4f8ef7' },
+          { label: 'Volume',     value: totalVol > 0 ? totalVol.toLocaleString() : '—', sub: 'weighted only',       color: '#5cb85c' },
         ].map(card => (
           <div key={card.label} style={{ background: '#fff', borderRadius: 10, padding: '16px 20px', boxShadow: '0 4px 14px rgba(0,0,0,0.07)', borderTop: `4px solid ${card.color}`, textAlign: 'center' }}>
             <div style={{ fontSize: 26, fontWeight: 700, color: card.color }}>{card.value}</div>
@@ -368,157 +438,161 @@ export default function ExerciseLogger() {
         ))}
       </div>
 
-      {/* Workout plan (routine sessions) */}
-      {sessionSource === 'routine' && sessionRoutine && (
-        <div style={{ background: '#fff', borderRadius: 10, boxShadow: '0 4px 14px rgba(0,0,0,0.07)', marginBottom: 24, overflow: 'hidden' }}>
-          <button onClick={() => setPlanOpen(o => !o)} style={{
-            width: '100%', background: 'none', border: 'none', cursor: 'pointer',
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '14px 20px', fontSize: 15, fontWeight: 600, color: '#333',
-          }}>
-            <span>Workout Plan <span style={{ fontSize: 12, fontWeight: 400, color: '#aaa', marginLeft: 6 }}>{sessionRoutine.exercises.length} exercises</span></span>
-            <span style={{ fontSize: 12, color: '#aaa' }}>{planOpen ? '▲' : '▼'}</span>
-          </button>
-          {planOpen && (
-            <div style={{ padding: '0 16px 16px' }}>
-              {sessionRoutine.exercises.map((ex, i) => (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '9px 12px', borderRadius: 8, marginBottom: 6,
-                  background: '#fafafa', border: '1px solid #f0f0f0',
-                }}>
-                  <div>
-                    <span style={{ fontWeight: 600, fontSize: 14 }}>{ex.name}</span>
-                    <span style={{ fontSize: 12, color: '#aaa', marginLeft: 10 }}>
-                      {ex.sets}×{ex.reps}
-                      {ex.weight != null && ` @ ${ex.weight} ${ex.unit}`}
-                      {ex.rir  != null && ` · RIR ${ex.rir}`}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button onClick={() => prefillFromPlan(ex)} style={{ background: 'none', border: '1px solid #e0e0e0', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontSize: 12, color: '#555' }} title="Pre-fill form to adjust before logging">Edit & Log</button>
-                    <button onClick={() => logFromPlan(ex)} style={{ background: '#ff8c42', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Log</button>
-                  </div>
-                </div>
-              ))}
+      {/* Add exercise search */}
+      <div style={{ background: '#fff', borderRadius: 10, padding: '16px 20px', boxShadow: '0 4px 14px rgba(0,0,0,0.07)', marginBottom: 16 }}>
+        <div ref={sSearchRef} style={{ position: 'relative' }}>
+          <input
+            value={sSearch}
+            onChange={e => { setSSearch(e.target.value); setSDropdownOpen(true); }}
+            onKeyDown={sHandleSearchKey}
+            onFocus={() => setSDropdownOpen(true)}
+            placeholder="Search exercises or type a custom name…"
+            style={inputStyle({ width: '100%', boxSizing: 'border-box', paddingLeft: 36 })}
+          />
+          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 14, pointerEvents: 'none', color: '#aaa' }}>🔍</span>
+          {sDropdownOpen && sSearch.trim() && (
+            <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: '#fff', border: '1px solid #e8e8e8', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.1)', zIndex: 100, maxHeight: 220, overflowY: 'auto' }}>
+              {sSearchResults.length > 0 ? (
+                sSearchResults.map(ex => (
+                  <button key={ex} onMouseDown={e => { e.preventDefault(); sAddExercise(ex); }}
+                    style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '10px 14px', cursor: 'pointer', fontSize: 14, color: '#333', display: 'block' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#fff8f2'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                  >{ex}</button>
+                ))
+              ) : (
+                <button onMouseDown={e => { e.preventDefault(); sAddExercise(sSearch); }}
+                  style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '10px 14px', cursor: 'pointer', fontSize: 14, color: '#ff8c42', display: 'block' }}
+                >+ Add &ldquo;{sSearch}&rdquo; as custom exercise</button>
+              )}
             </div>
           )}
         </div>
+      </div>
+
+      {/* Exercise cards */}
+      {sessionExs.length === 0 ? (
+        <div style={{ background: '#fff', borderRadius: 10, padding: '40px 0', textAlign: 'center', color: '#bbb', fontSize: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          Search for an exercise above to get started.
+        </div>
+      ) : (
+        sessionExs.map((ex, exIdx) => (
+          <ExerciseCard
+            key={exIdx}
+            ex={ex}
+            showDone={true}
+            onUpdateSet={(si, field, val) => sUpdateSet(exIdx, si, field, val)}
+            onRemoveSet={si => sRemoveSet(exIdx, si)}
+            onAddSet={() => sAddSet(exIdx)}
+            onUpdateUnit={val => sUpdateUnit(exIdx, val)}
+            onRemove={() => sRemoveEx(exIdx)}
+            onToggleDone={si => sToggleDone(exIdx, si)}
+          />
+        ))
       )}
+    </div>
+  );
+}
 
-      {/* Log form */}
-      <div style={{ background: '#fff', borderRadius: 10, padding: '20px 24px', boxShadow: '0 4px 14px rgba(0,0,0,0.07)', marginBottom: 24 }}>
-        <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>Log Exercise</h3>
-        <form onSubmit={sAdd}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-            <input name="name" placeholder="Exercise name *" value={sForm.name}
-              onChange={e => { setSForm(f => ({ ...f, name: e.target.value })); setSError(''); }}
-              style={inputStyle({ flex: '3 1 200px' })} />
-            <input name="sets" type="number" min="1" placeholder="Sets *" value={sForm.sets}
-              onChange={e => { setSForm(f => ({ ...f, sets: e.target.value })); setSError(''); }}
-              style={inputStyle({ flex: '1 1 70px' })} />
-            <input name="reps" type="number" min="1" placeholder="Reps *" value={sForm.reps}
-              onChange={e => { setSForm(f => ({ ...f, reps: e.target.value })); setSError(''); }}
-              style={inputStyle({ flex: '1 1 70px' })} />
-            <div style={{ display: 'flex', gap: 6, flex: '2 1 150px' }}>
-              <input name="weight" type="number" min="0" step="0.5" placeholder="Weight" value={sForm.weight}
-                onChange={e => { setSForm(f => ({ ...f, weight: e.target.value })); setSError(''); }}
-                style={inputStyle({ flex: 1, minWidth: 0 })} />
-              <select name="unit" value={sForm.unit} onChange={e => setSForm(f => ({ ...f, unit: e.target.value }))}
-                style={{ ...inputStyle(), padding: '9px 8px', cursor: 'pointer', width: 58, flexShrink: 0 }}>
-                <option value="lbs">lbs</option>
-                <option value="kg">kg</option>
-              </select>
-            </div>
-            <input name="rir" type="number" min="0" max="10" placeholder="RIR (optional)" value={sForm.rir}
-              onChange={e => { setSForm(f => ({ ...f, rir: e.target.value })); setSError(''); }}
-              style={inputStyle({ flex: '1 1 120px' })} />
-          </div>
-          {sError && <p style={{ color: '#e05c5c', margin: '0 0 10px', fontSize: 13 }}>{sError}</p>}
-          <button type="submit" style={{ background: '#ff8c42', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 22px', fontWeight: 600, cursor: 'pointer', fontSize: 14 }}>
-            + Log Set
-          </button>
-        </form>
-      </div>
+// ── Shared exercise card component
+function ExerciseCard({ ex, showDone, onUpdateSet, onRemoveSet, onAddSet, onUpdateUnit, onRemove, onToggleDone }) {
+  // Grid columns differ based on whether the done toggle is shown
+  const cols = showDone
+    ? '32px 40px 1fr 1fr 1fr 24px'   // toggle | set# | reps | weight | rir | remove
+    : '40px 1fr 1fr 1fr 24px';        // set# | reps | weight | rir | remove
 
-      {/* Log table */}
-      <div style={{ background: '#fff', borderRadius: 10, boxShadow: '0 4px 14px rgba(0,0,0,0.07)', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid #f0f0f0' }}>
-          <h3 style={{ margin: 0, fontSize: 16 }}>Session Log ({entries.length} {entries.length === 1 ? 'entry' : 'entries'})</h3>
-          {entries.length > 0 && (
-            <button onClick={() => { if (window.confirm('Clear all entries?')) persistEntries([]); }} style={{ background: 'none', border: '1px solid #ddd', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontSize: 12, color: '#888' }}>
-              Clear All
-            </button>
-          )}
+  return (
+    <div style={{ background: '#fff', borderRadius: 10, padding: '16px 20px', boxShadow: '0 4px 14px rgba(0,0,0,0.07)', marginBottom: 12 }}>
+      {/* Exercise header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <span style={{ fontWeight: 700, fontSize: 15, color: '#222' }}>{ex.name}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <select
+            value={ex.unit}
+            onChange={e => onUpdateUnit(e.target.value)}
+            style={{ ...inputStyle(), padding: '6px 8px', fontSize: 13, cursor: 'pointer', width: 64 }}
+          >
+            <option value="lbs">lbs</option>
+            <option value="kg">kg</option>
+          </select>
+          <button onClick={onRemove} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', fontSize: 16, padding: '2px 4px', lineHeight: 1 }} title="Remove exercise">✕</button>
         </div>
-        {entries.length === 0 ? (
-          <p style={{ textAlign: 'center', color: '#bbb', padding: '32px 0', margin: 0 }}>
-            No exercises logged yet — add your first set above.
-          </p>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-              <thead>
-                <tr style={{ background: '#fafafa' }}>
-                  {['Exercise', 'Sets', 'Reps', 'Weight', 'Volume', 'RIR', 'Time', ''].map(h => (
-                    <th key={h} style={thStyle(h === 'Exercise' ? { textAlign: 'left' } : {})}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map((entry, i) => {
-                  const v = vol(entry);
-                  return (
-                    <tr key={entry.id} style={{ borderTop: '1px solid #f0f0f0', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                      <td style={{ padding: '10px 16px', fontWeight: 600 }}>{entry.name}</td>
-                      <td style={tdStyle()}>{entry.sets}</td>
-                      <td style={tdStyle()}>{entry.reps}</td>
-                      <td style={tdStyle()}>
-                        {entry.weight != null
-                          ? <>{entry.weight} <span style={{ color: '#aaa', fontSize: 11 }}>{entry.unit}</span></>
-                          : <span style={{ color: '#ddd' }}>—</span>}
-                      </td>
-                      <td style={tdStyle()}>
-                        {v > 0 ? <span style={{ color: '#5cb85c', fontWeight: 600 }}>{v.toLocaleString()}</span> : <span style={{ color: '#ddd' }}>—</span>}
-                      </td>
-                      <td style={tdStyle()}>
-                        {entry.rir != null
-                          ? <span style={{ background: '#f0f4ff', color: '#4f8ef7', borderRadius: 4, padding: '2px 7px', fontSize: 12, fontWeight: 600 }}>{entry.rir}</span>
-                          : <span style={{ color: '#ddd' }}>—</span>}
-                      </td>
-                      <td style={{ ...tdStyle(), color: '#aaa', fontSize: 12, whiteSpace: 'nowrap' }}>{entry.time}</td>
-                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                        <button onClick={() => deleteEntry(entry.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', fontSize: 16, lineHeight: 1, padding: 4 }} title="Remove">✕</button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr style={{ borderTop: '2px solid #eee', background: '#f7f7fb' }}>
-                  <td style={{ padding: '10px 16px', fontWeight: 700, color: '#555' }}>Total</td>
-                  <td style={tdStyle({ fontWeight: 700, color: '#4f8ef7' })}>{totalSets}</td>
-                  <td style={tdStyle()}>—</td>
-                  <td style={tdStyle()}>—</td>
-                  <td style={tdStyle({ fontWeight: 700, color: '#5cb85c' })}>{totalVol > 0 ? totalVol.toLocaleString() : '—'}</td>
-                  <td style={tdStyle()}>—</td>
-                  <td /><td />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
       </div>
+
+      {/* Column labels */}
+      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 6, marginBottom: 4 }}>
+        {showDone && <span />}
+        <span />
+        <span style={{ fontSize: 11, color: '#bbb', fontWeight: 600, textAlign: 'center' }}>REPS</span>
+        <span style={{ fontSize: 11, color: '#bbb', fontWeight: 600, textAlign: 'center' }}>WEIGHT</span>
+        <span style={{ fontSize: 11, color: '#bbb', fontWeight: 600, textAlign: 'center' }}>RIR</span>
+        <span />
+      </div>
+
+      {/* Set rows */}
+      {ex.sets.map((s, si) => {
+        const done = showDone && s.done;
+        return (
+          <div key={si} style={{
+            display: 'grid', gridTemplateColumns: cols, gap: 6, marginBottom: 6, alignItems: 'center',
+            background: done ? '#f0fdf4' : 'transparent',
+            borderRadius: done ? 7 : 0,
+            padding: done ? '2px 4px' : '0',
+            transition: 'background 0.15s',
+          }}>
+            {showDone && (
+              <button
+                onClick={() => onToggleDone(si)}
+                title={done ? 'Mark incomplete' : 'Mark complete'}
+                style={{
+                  width: 26, height: 26, borderRadius: '50%', flexShrink: 0, margin: '0 auto',
+                  border: done ? 'none' : '2px solid #d0d0d0',
+                  background: done ? '#5cb85c' : 'transparent',
+                  cursor: 'pointer', padding: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#fff', fontSize: 13, fontWeight: 700,
+                }}
+              >{done ? '✓' : ''}</button>
+            )}
+            <span style={{ fontSize: 12, color: '#aaa', fontWeight: 600, textAlign: 'right', paddingRight: 4 }}>
+              {si + 1}
+            </span>
+            <input
+              type="number" min="1" placeholder="—" value={s.reps}
+              onChange={e => onUpdateSet(si, 'reps', e.target.value)}
+              style={inputStyle({ textAlign: 'center', padding: '7px 6px', opacity: done ? 0.5 : 1 })}
+            />
+            <input
+              type="number" min="0" step="0.5" placeholder="—" value={s.weight}
+              onChange={e => onUpdateSet(si, 'weight', e.target.value)}
+              style={inputStyle({ textAlign: 'center', padding: '7px 6px', opacity: done ? 0.5 : 1 })}
+            />
+            <input
+              type="number" min="0" max="10" placeholder="—" value={s.rir}
+              onChange={e => onUpdateSet(si, 'rir', e.target.value)}
+              style={inputStyle({ textAlign: 'center', padding: '7px 6px', opacity: done ? 0.5 : 1 })}
+            />
+            <button
+              onClick={() => onRemoveSet(si)}
+              disabled={ex.sets.length === 1}
+              style={{ background: 'none', border: 'none', cursor: ex.sets.length > 1 ? 'pointer' : 'default', color: ex.sets.length > 1 ? '#ccc' : '#eee', fontSize: 15, padding: 0, lineHeight: 1 }}
+              title="Remove set"
+            >✕</button>
+          </div>
+        );
+      })}
+
+      {/* Add set */}
+      <button
+        onClick={onAddSet}
+        style={{ marginTop: 6, background: 'none', border: '1px dashed #e0e0e0', borderRadius: 7, padding: '5px 14px', cursor: 'pointer', fontSize: 13, color: '#888' }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = '#ff8c42'; e.currentTarget.style.color = '#ff8c42'; }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = '#e0e0e0'; e.currentTarget.style.color = '#888'; }}
+      >+ Add Set</button>
     </div>
   );
 }
 
 function inputStyle(extra = {}) {
   return { padding: '9px 12px', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 14, outline: 'none', background: '#fafafa', minWidth: 0, ...extra };
-}
-function thStyle(extra = {}) {
-  return { padding: '10px 16px', fontWeight: 600, fontSize: 13, color: '#555', textAlign: 'center', whiteSpace: 'nowrap', ...extra };
-}
-function tdStyle(extra = {}) {
-  return { padding: '10px 16px', textAlign: 'center', ...extra };
 }
