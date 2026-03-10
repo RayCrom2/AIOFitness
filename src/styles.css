@@ -32,3 +32,9 @@ body{font-family:Inter,Segoe UI,Arial,Helvetica,sans-serif;margin:20px;backgroun
   background: #ff8c42;
   color: #fff;
 }
+input::placeholder {
+  color: #c0c0c0;
+}
+input:focus::placeholder {
+  color: transparent;
+}
