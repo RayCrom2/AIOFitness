@@ -613,16 +613,6 @@ export default function Nutrition() {
                         }}
                         title="Save to My Foods"
                       >☆</button>
-                    <td style={{ padding: '10px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                      <button
-                        onClick={() => handleSaveEntryToMyFoods(entry)}
-                        style={{
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          color: '#aaa', fontSize: 20, padding: '2px 6px',
-                          visibility: savedFoods.some(f => f.name.toLowerCase() === entry.food_name.toLowerCase()) ? 'hidden' : 'visible',
-                        }}
-                        title="Save to My Foods"
-                      >☆</button>
                       <button onClick={() => handleDelete(entry.id)} style={{
                         background: 'none', border: 'none', cursor: 'pointer',
                         color: '#ccc', fontSize: 16, lineHeight: 1, padding: 4,
