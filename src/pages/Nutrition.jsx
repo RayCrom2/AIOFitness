@@ -1,14 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { LuCalendar } from 'react-icons/lu';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 export const monthAbbr = new Date().toLocaleString('default', { month: 'short' }).toUpperCase()
 
-const STORAGE_KEY = 'nutrition_log';
-const DATE_KEY = 'nutrition_date';
 const CARD_ORDER_KEY = 'nutrition_card_order';
 const VISIBLE_KEY = 'nutrition_visible_macros';
-const MY_FOODS_KEY = 'nutrition_my_foods';
 
 const SERVING_UNITS = ['g', 'oz', 'fl oz', 'ml', 'lb', 'cup', 'tbsp', 'tsp'];
 
@@ -28,12 +26,10 @@ function todayStr() {
 }
 
 export default function Nutrition() {
-  const { requireAuth } = useAuth();
+  const { user, requireAuth } = useAuth();
   const [entries, setEntries] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [savedFoods, setSavedFoods] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(MY_FOODS_KEY) || '[]'); } catch { return []; }
-  });
+  const [savedFoods, setSavedFoods] = useState([]);
   const [myFoodsOpen, setMyFoodsOpen] = useState(false);
   const [libraryAmounts, setLibraryAmounts] = useState({});
   const [savedFeedback, setSavedFeedback] = useState(false);
@@ -110,28 +106,26 @@ export default function Nutrition() {
     setDragOverIndex(null);
   }
 
-  // Load entries, reset if it's a new day
   useEffect(() => {
-    const savedDate = localStorage.getItem(DATE_KEY);
-    const today = todayStr();
-    if (savedDate !== today) {
-      localStorage.setItem(DATE_KEY, today);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
-      setEntries([]);
-    } else {
-      try {
-        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-        setEntries(saved);
-      } catch {
-        setEntries([]);
-      }
-    }
-  }, []);
+    if (!user) { setEntries([]); return; }
+    supabase
+      .from('nutrition_logs')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('logged_at', todayStr())
+      .order('created_at')
+      .then(({ data }) => setEntries(data || []));
+  }, [user]);
 
-  function persist(next) {
-    setEntries(next);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-  }
+  useEffect(() => {
+    if (!user) { setSavedFoods([]); return; }
+    supabase
+      .from('custom_foods')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('name')
+      .then(({ data }) => setSavedFoods(data || []));
+  }, [user]);
 
   function handleChange(e) {
     setForm(f => ({ ...f, [e.target.name]: e.target.value }));
@@ -144,12 +138,14 @@ export default function Nutrition() {
     if (!form.calories || isNaN(Number(form.calories)) || Number(form.calories) < 0) {
       setError('Enter a valid calorie amount.'); return;
     }
-    requireAuth(() => {
+    requireAuth(async () => {
+      const { data: { user: u } } = await supabase.auth.getUser();
       const now = new Date();
       const entry = {
-        id: Date.now(),
-        time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
-        name: form.name.trim(),
+        user_id: u.id,
+        logged_at: todayStr(),
+        logged_time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
+        food_name: form.name.trim(),
         calories: Number(form.calories) || 0,
         protein: Number(form.protein) || 0,
         fat: Number(form.fat) || 0,
@@ -159,68 +155,80 @@ export default function Nutrition() {
         serving_amount: form.serving_amount !== '' ? Number(form.serving_amount) : null,
         serving_unit: form.serving_unit || 'g',
       };
-      persist([...entries, entry]);
+      const { data } = await supabase.from('nutrition_logs').insert(entry).select().single();
+      if (data) setEntries(prev => [...prev, data]);
       setForm(EMPTY_FORM);
     });
   }
 
   function handleSaveToMyFoods() {
     if (!form.name.trim()) { setError('Food name is required.'); return; }
-    const food = {
-      name: form.name.trim(),
-      calories: Number(form.calories) || 0,
-      protein: Number(form.protein) || 0,
-      fat: Number(form.fat) || 0,
-      carbs: Number(form.carbs) || 0,
-      fiber: Number(form.fiber) || 0,
-      sugar: Number(form.sugar) || 0,
-      serving_amount: form.serving_amount !== '' ? Number(form.serving_amount) : null,
-      serving_unit: form.serving_unit || 'g',
-    };
-    const already = savedFoods.some(f => f.name.toLowerCase() === food.name.toLowerCase());
-    if (!already) {
-      const next = [...savedFoods, food];
-      setSavedFoods(next);
-      localStorage.setItem(MY_FOODS_KEY, JSON.stringify(next));
-    }
-    setSavedFeedback(true);
-    setTimeout(() => setSavedFeedback(false), 1500);
+    requireAuth(async () => {
+      const { data: { user: u } } = await supabase.auth.getUser();
+      const already = savedFoods.some(f => f.name.toLowerCase() === form.name.trim().toLowerCase());
+      if (!already) {
+        const food = {
+          user_id: u.id,
+          name: form.name.trim(),
+          calories: Number(form.calories) || 0,
+          protein: Number(form.protein) || 0,
+          fat: Number(form.fat) || 0,
+          carbs: Number(form.carbs) || 0,
+          fiber: Number(form.fiber) || 0,
+          sugar: Number(form.sugar) || 0,
+          serving_amount: form.serving_amount !== '' ? Number(form.serving_amount) : null,
+          serving_unit: form.serving_unit || 'g',
+        };
+        const { data } = await supabase.from('custom_foods').insert(food).select().single();
+        if (data) setSavedFoods(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+      }
+      setSavedFeedback(true);
+      setTimeout(() => setSavedFeedback(false), 1500);
+    });
   }
 
-  function handleDelete(id) {
-    persist(entries.filter(e => e.id !== id));
+  async function handleDelete(id) {
+    await supabase.from('nutrition_logs').delete().eq('id', id);
+    setEntries(prev => prev.filter(e => e.id !== id));
   }
 
-  function handleClearAll() {
-    if (window.confirm('Clear all entries for today?')) persist([]);
+  async function handleClearAll() {
+    if (!window.confirm('Clear all entries for today?')) return;
+    if (!user) return;
+    await supabase.from('nutrition_logs').delete().eq('user_id', user.id).eq('logged_at', todayStr());
+    setEntries([]);
   }
 
   function handleAddFromLibrary(food) {
-    const customAmount = Number(libraryAmounts[food.name] ?? food.serving_amount);
-    const baseAmount = Number(food.serving_amount);
-    const scale = baseAmount > 0 && customAmount > 0 ? customAmount / baseAmount : 1;
-    const now = new Date();
-    const entry = {
-      id: Date.now(),
-      time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
-      name: food.name,
-      calories: Math.round(food.calories * scale),
-      protein: Math.round(food.protein * scale * 10) / 10,
-      fat: Math.round(food.fat * scale * 10) / 10,
-      carbs: Math.round(food.carbs * scale * 10) / 10,
-      fiber: Math.round(food.fiber * scale * 10) / 10,
-      sugar: Math.round(food.sugar * scale * 10) / 10,
-      serving_amount: customAmount || food.serving_amount,
-      serving_unit: food.serving_unit,
-    };
-    persist([...entries, entry]);
-    setLibraryAmounts(prev => { const next = { ...prev }; delete next[food.name]; return next; });
+    requireAuth(async () => {
+      const { data: { user: u } } = await supabase.auth.getUser();
+      const customAmount = Number(libraryAmounts[food.name] ?? food.serving_amount);
+      const baseAmount = Number(food.serving_amount);
+      const scale = baseAmount > 0 && customAmount > 0 ? customAmount / baseAmount : 1;
+      const now = new Date();
+      const entry = {
+        user_id: u.id,
+        logged_at: todayStr(),
+        logged_time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
+        food_name: food.name,
+        calories: Math.round(food.calories * scale),
+        protein: Math.round(food.protein * scale * 10) / 10,
+        fat: Math.round(food.fat * scale * 10) / 10,
+        carbs: Math.round(food.carbs * scale * 10) / 10,
+        fiber: Math.round(food.fiber * scale * 10) / 10,
+        sugar: Math.round(food.sugar * scale * 10) / 10,
+        serving_amount: customAmount || food.serving_amount,
+        serving_unit: food.serving_unit,
+      };
+      const { data } = await supabase.from('nutrition_logs').insert(entry).select().single();
+      if (data) setEntries(prev => [...prev, data]);
+      setLibraryAmounts(prev => { const next = { ...prev }; delete next[food.name]; return next; });
+    });
   }
 
-  function handleDeleteSaved(name) {
-    const next = savedFoods.filter(f => f.name !== name);
-    setSavedFoods(next);
-    localStorage.setItem(MY_FOODS_KEY, JSON.stringify(next));
+  async function handleDeleteSaved(id) {
+    await supabase.from('custom_foods').delete().eq('id', id);
+    setSavedFoods(prev => prev.filter(f => f.id !== id));
   }
 
   const totals = MACROS.reduce((acc, m) => {
@@ -452,7 +460,7 @@ export default function Nutrition() {
           ) : (
             <div style={{ padding: '0 16px 16px' }}>
               {savedFoods.map(food => (
-                <div key={food.name} style={{
+                <div key={food.id} style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                   padding: '9px 10px', borderRadius: 8, marginBottom: 6,
                   background: '#fafafa', border: '1px solid #f0f0f0',
@@ -490,7 +498,7 @@ export default function Nutrition() {
                       }}
                     >+ Add</button>
                     <button
-                      onClick={() => handleDeleteSaved(food.name)}
+                      onClick={() => handleDeleteSaved(food.id)}
                       style={{
                         background: 'none', border: 'none', cursor: 'pointer',
                         color: '#ccc', fontSize: 16, lineHeight: 1, padding: '4px 6px',
@@ -540,7 +548,7 @@ export default function Nutrition() {
               <tbody>
                 {entries.map((entry, i) => (
                   <tr key={entry.id} style={{ borderTop: '1px solid #f0f0f0', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
-                    <td style={{ padding: '10px 16px', fontWeight: 500 }}>{entry.name}</td>
+                    <td style={{ padding: '10px 16px', fontWeight: 500 }}>{entry.food_name}</td>
                     <td style={{ padding: '10px 16px', textAlign: 'center', color: '#aaa', fontSize: 12, whiteSpace: 'nowrap' }}>
                       {entry.serving_amount ? `${entry.serving_amount} ${entry.serving_unit || ''}` : '—'}
                     </td>
@@ -550,7 +558,7 @@ export default function Nutrition() {
                       </td>
                     ))}
                     <td style={{ padding: '10px 16px', textAlign: 'center', color: '#aaa', fontSize: 12, whiteSpace: 'nowrap' }}>
-                      {entry.time || '—'}
+                      {entry.logged_time || '—'}
                     </td>
                     <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                       <button onClick={() => handleDelete(entry.id)} style={{
