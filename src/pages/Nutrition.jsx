@@ -246,6 +246,26 @@ export default function Nutrition() {
     });
   }
 
+  function handleSaveEntryToMyFoods(entry) {
+    requireAuth(async () => {
+      const { data: { user: u } } = await supabase.auth.getUser();
+      const food = {
+        user_id: u.id,
+        name: entry.food_name,
+        calories: entry.calories || 0,
+        protein: entry.protein || 0,
+        fat: entry.fat || 0,
+        carbs: entry.carbs || 0,
+        fiber: entry.fiber || 0,
+        sugar: entry.sugar || 0,
+        serving_amount: entry.serving_amount || null,
+        serving_unit: entry.serving_unit || 'g',
+      };
+      const { data } = await supabase.from('custom_foods').insert(food).select().single();
+      if (data) setSavedFoods(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+    });
+  }
+
   async function handleDeleteSaved(id) {
     if (!window.confirm('Remove from My Foods?')) return;
     await supabase.from('custom_foods').delete().eq('id', id);
@@ -519,7 +539,9 @@ export default function Nutrition() {
                       }}
                     >+ Add</button>
                     <button
-                      onClick={() => handleDeleteSaved(food.id)}
+                      onClick={() => {
+                        if (window.confirm('Remove from My Foods?')) handleDeleteSaved(food.id)
+                      }}
                       style={{
                         background: 'none', border: 'none', cursor: 'pointer',
                         color: '#ccc', fontSize: 16, lineHeight: 1, padding: '4px 6px',
@@ -581,6 +603,16 @@ export default function Nutrition() {
                     <td style={{ padding: '10px 16px', textAlign: 'center', color: '#aaa', fontSize: 12, whiteSpace: 'nowrap' }}>
                       {entry.logged_time || '—'}
                     </td>
+                    <td style={{ padding: '10px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      <button
+                        onClick={() => handleSaveEntryToMyFoods(entry)}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: '#aaa', fontSize: 20, padding: '2px 6px',
+                          visibility: savedFoods.some(f => f.name.toLowerCase() === entry.food_name.toLowerCase()) ? 'hidden' : 'visible',
+                        }}
+                        title="Save to My Foods"
+                      >☆</button>
                     <td style={{ padding: '10px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                       <button
                         onClick={() => handleSaveEntryToMyFoods(entry)}
