@@ -1076,7 +1076,10 @@ export default function Nutrition() {
                       + Add
                     </button>
                     <button
-                      onClick={() => handleDeleteSaved(food.id)}
+                      onClick={() => {
+                        if (window.confirm("Remove from My Foods?"))
+                          handleDeleteSaved(food.id);
+                      }}
                       style={{
                         background: "none",
                         border: "none",
