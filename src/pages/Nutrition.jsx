@@ -71,7 +71,7 @@ export default function Nutrition() {
   const [entries, setEntries] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [savedFoods, setSavedFoods] = useState([]);
-  const [myFoodsOpen, setMyFoodsOpen] = useState(false);
+  const [myFoodsOpen, setMyFoodsOpen] = useState(true);
   const [libraryAmounts, setLibraryAmounts] = useState({});
   const [savedFeedback, setSavedFeedback] = useState(false);
   const [error, setError] = useState("");
