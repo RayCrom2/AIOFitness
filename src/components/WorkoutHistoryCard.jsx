@@ -46,8 +46,8 @@ export default function WorkoutHistoryCard({ session, onDelete }) {
             {/* Expanded content */}
             {open && (
                 <div className="px-3 pb-3 pt-1">
-                    {session.exercises.map((e) => (
-                        <div key={e.name} className="mb-3">
+                    {session.exercises.map((e, exIndex) => (
+                        <div key={e.name} className="mb-3 rounded-lg px-2 py-1" style={{ background: exIndex % 2 === 0 ? '#f0f4ff' : '#fff8f3' }}>
                             <div className="font-semibold text-[13px] text-[#333] mb-1">{e.name}</div>
                             <div className="grid text-[12px] text-[#aaa] font-semibold mb-1 px-1" style={{ gridTemplateColumns: '24px 1fr 1fr 1fr' }}>
                                 <span>#</span>
