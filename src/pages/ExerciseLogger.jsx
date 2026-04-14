@@ -1,21 +1,62 @@
 import { useState, useRef, useEffect } from "react";
 import { supabase } from "../lib/supabase";
-import muscles from "../data/muscles.js";
 import { LuCalendar } from "react-icons/lu";
 import { monthAbbr } from "./Nutrition.jsx";
 import { useAuth } from "../context/AuthContext";
 import WorkoutHistoryCard from "../components/WorkoutHistoryCard.jsx";
 
 
-// Deduplicated list of all exercises from muscles.js
-const ALL_EXERCISES = [
-  ...new Set(
-    Object.values(muscles).flatMap((m) => [
-      ...(m.exercises || []),
-      ...(m.parts || []).flatMap((p) => p.exercises || []),
-    ]),
-  ),
-].sort();
+const WGER_CATEGORIES = [
+  { label: 'Abs',       id: 10 },
+  { label: 'Arms',      id: 8  },
+  { label: 'Back',      id: 12 },
+  { label: 'Chest',     id: 11 },
+  { label: 'Legs',      id: 9  },
+  { label: 'Shoulders', id: 13 },
+];
+
+async function searchWgerExercises(term, categoryId) {
+  try {
+    if (categoryId) {
+      const url = `https://wger.de/api/v2/exerciseinfo/?format=json&category=${categoryId}&limit=100`;
+      const res = await fetch(url);
+      const json = await res.json();
+      const names = [...new Set(
+        (json.results || [])
+          .map((e) => (e.translations || []).find((t) => t.language === 2)?.name)
+          .filter(Boolean)
+      )].sort();
+      return term.trim() ? names.filter((n) => n.toLowerCase().includes(term.toLowerCase())) : names;
+    }
+    const res = await fetch(
+      `https://wger.de/api/v2/exercise/search/?term=${encodeURIComponent(term)}&language=english&format=json`
+    );
+    const json = await res.json();
+    return [...new Set((json.suggestions || []).map((s) => s.value).filter(Boolean))];
+  } catch {
+    return [];
+  }
+}
+
+const exerciseImageCache = {};
+async function fetchExerciseImage(name) {
+  const key = name.toLowerCase();
+  if (key in exerciseImageCache) return exerciseImageCache[key];
+  const term = name.replace(/\s*\(.*?\)\s*/g, '').trim();
+  try {
+    const res = await fetch(
+      `https://wger.de/api/v2/exercise/search/?term=${encodeURIComponent(term)}&language=english&format=json`
+    );
+    const json = await res.json();
+    const image = json.suggestions?.[0]?.data?.image;
+    const url = image ? `https://wger.de${image}` : null;
+    exerciseImageCache[key] = url;
+    return url;
+  } catch {
+    exerciseImageCache[key] = null;
+    return null;
+  }
+}
 
 // ── Shared exercise card component
 function ExerciseCard({
@@ -32,11 +73,21 @@ function ExerciseCard({
     ? "grid-cols-[32px_40px_1fr_1fr_1fr_24px]"
     : "grid-cols-[40px_1fr_1fr_1fr_24px]";
 
+  const [imgUrl, setImgUrl] = useState(null);
+  useEffect(() => {
+    fetchExerciseImage(ex.name).then((url) => { if (url) setImgUrl(url); });
+  }, [ex.name]);
+
   return (
     <div className="bg-white rounded-xl px-5 py-4 shadow-[0_4px_14px_rgba(0,0,0,0.07)] mb-3">
       {/* Exercise header */}
       <div className="flex items-center justify-between mb-3">
-        <span className="font-bold text-[15px] text-[#222]">{ex.name}</span>
+        <div className="flex items-center gap-2.5">
+          {imgUrl && (
+            <img src={imgUrl} alt={ex.name} style={{ width: 48, height: 48, objectFit: 'contain', borderRadius: 6, background: '#f5f5f5', flexShrink: 0 }} />
+          )}
+          <span className="font-bold text-[15px] text-[#222]">{ex.name}</span>
+        </div>
         <div className="flex items-center gap-2">
           <select
             value={ex.unit}
@@ -160,6 +211,8 @@ export default function ExerciseLogger() {
   const [cName, setRName] = useState("");
   const [cExs, setCExs] = useState([]);
   const [cSearch, setCSearch] = useState("");
+  const [cSearchResults, setCSearchResults] = useState([]);
+  const [cCategoryFilter, setCCategoryFilter] = useState(null);
   const [cDropdownOpen, setCDropdownOpen] = useState(false);
   const [cError, setCError] = useState("");
   const cSearchRef = useRef(null);
@@ -170,6 +223,8 @@ export default function ExerciseLogger() {
   const [sessionSource, setSessionSource] = useState("free");
   const [sessionExs, setSessionExs] = useState([]);
   const [sSearch, setSSearch] = useState("");
+  const [sSearchResults, setSSearchResults] = useState([]);
+  const [sCategoryFilter, setSCategoryFilter] = useState(null);
   const [sDropdownOpen, setSDropdownOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [ending, setEnding] = useState(false);
@@ -291,12 +346,15 @@ export default function ExerciseLogger() {
     setPastWorkouts((prev) => prev.filter((w) => w.id !== id));
   }
 
-  // ── create-routine: search
-  const cSearchResults = cSearch.trim()
-    ? ALL_EXERCISES.filter((ex) =>
-      ex.toLowerCase().includes(cSearch.toLowerCase()),
-    )
-    : [];
+  // ── create-routine: search (wger API, debounced)
+  useEffect(() => {
+    if (!cSearch.trim() && !cCategoryFilter) { setCSearchResults([]); return; }
+    const delay = cCategoryFilter && !cSearch.trim() ? 0 : 300;
+    const timer = setTimeout(async () => {
+      setCSearchResults(await searchWgerExercises(cSearch.trim(), cCategoryFilter));
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [cSearch, cCategoryFilter]);
 
   function cAddExercise(name) {
     const trimmed = name.trim();
@@ -390,12 +448,15 @@ export default function ExerciseLogger() {
     });
   }
 
-  // ── session: search
-  const sSearchResults = sSearch.trim()
-    ? ALL_EXERCISES.filter((ex) =>
-      ex.toLowerCase().includes(sSearch.toLowerCase()),
-    )
-    : [];
+  // ── session: search (wger API, debounced)
+  useEffect(() => {
+    if (!sSearch.trim() && !sCategoryFilter) { setSSearchResults([]); return; }
+    const delay = sCategoryFilter && !sSearch.trim() ? 0 : 300;
+    const timer = setTimeout(async () => {
+      setSSearchResults(await searchWgerExercises(sSearch.trim(), sCategoryFilter));
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [sSearch, sCategoryFilter]);
 
   function sAddExercise(name) {
     const trimmed = name.trim();
@@ -708,7 +769,21 @@ export default function ExerciseLogger() {
 
         {/* Exercise search */}
         <div className="bg-white rounded-xl px-5 py-4 shadow-[0_4px_14px_rgba(0,0,0,0.07)] mb-4">
-          <div ref={cSearchRef} className="relative">
+          <div ref={cSearchRef}>
+            <p className="text-[11px] font-semibold text-[#aaa] mb-1.5 uppercase tracking-wide">Discover workouts for:</p>
+            <div className="flex gap-1.5 flex-wrap mb-2.5">
+              {WGER_CATEGORIES.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); setCCategoryFilter(cCategoryFilter === cat.id ? null : cat.id); setCDropdownOpen(true); }}
+                  className={cCategoryFilter === cat.id
+                    ? "px-2.5 py-1 rounded-full text-[11px] font-semibold cursor-pointer border bg-[#ff8c42] text-white border-[#ff8c42]"
+                    : "px-2.5 py-1 rounded-full text-[11px] font-semibold cursor-pointer border border-[#e0e0e0] bg-white text-[#555]"}
+                >{cat.label}</button>
+              ))}
+            </div>
+          <div className="relative">
             <input
               value={cSearch}
               onChange={(e) => {
@@ -724,7 +799,7 @@ export default function ExerciseLogger() {
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none text-[#aaa]">
               🔍
             </span>
-            {cDropdownOpen && cSearch.trim() && (
+            {cDropdownOpen && (cSearch.trim() || cCategoryFilter) && (
               <div className="absolute top-[calc(100%+4px)] left-0 right-0 bg-white border border-[#e8e8e8] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.1)] z-[100] max-h-[220px] overflow-y-auto">
                 {cSearchResults.length > 0 ? (
                   cSearchResults.map((ex) => (
@@ -752,6 +827,7 @@ export default function ExerciseLogger() {
                 )}
               </div>
             )}
+          </div>
           </div>
         </div>
 
@@ -902,7 +978,21 @@ export default function ExerciseLogger() {
 
       {/* Add exercise search */}
       <div className="bg-white rounded-xl px-5 py-4 shadow-[0_4px_14px_rgba(0,0,0,0.07)] mb-4">
-        <div ref={sSearchRef} className="relative">
+        <div ref={sSearchRef}>
+          <p className="text-[11px] font-semibold text-[#aaa] mb-1.5 uppercase tracking-wide">Discover workouts for:</p>
+          <div className="flex gap-1.5 flex-wrap mb-2.5">
+            {WGER_CATEGORIES.map((cat) => (
+              <button
+                key={cat.id}
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); setSCategoryFilter(sCategoryFilter === cat.id ? null : cat.id); setSDropdownOpen(true); }}
+                className={sCategoryFilter === cat.id
+                  ? "px-2.5 py-1 rounded-full text-[11px] font-semibold cursor-pointer border bg-[#ff8c42] text-white border-[#ff8c42]"
+                  : "px-2.5 py-1 rounded-full text-[11px] font-semibold cursor-pointer border border-[#e0e0e0] bg-white text-[#555]"}
+              >{cat.label}</button>
+            ))}
+          </div>
+          <div className="relative">
           <input
             value={sSearch}
             onChange={(e) => {
@@ -917,7 +1007,7 @@ export default function ExerciseLogger() {
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none text-[#aaa]">
             🔍
           </span>
-          {sDropdownOpen && sSearch.trim() && (
+          {sDropdownOpen && (sSearch.trim() || sCategoryFilter) && (
             <div className="absolute top-[calc(100%+4px)] left-0 right-0 bg-white border border-[#e8e8e8] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.1)] z-[100] max-h-[220px] overflow-y-auto">
               {sSearchResults.length > 0 ? (
                 sSearchResults.map((ex) => (
@@ -945,6 +1035,7 @@ export default function ExerciseLogger() {
               )}
             </div>
           )}
+        </div>
         </div>
       </div>
 
