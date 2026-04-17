@@ -15,10 +15,12 @@ async function loadExerciseData() {
         for (const json of pages) {
             for (const e of (json.results || [])) {
                 const name = (e.translations || []).find((t) => t.language === 2)?.name;
-                if (!name || seen.has(name)) continue;
-                seen.add(name);
+                if (!name) continue;
+                const key = name.toLowerCase();
+                if (seen.has(key)) continue;
+                seen.add(key);
                 const img = (e.images || []).find((i) => i.is_main) || e.images?.[0];
-                imageMap[name.toLowerCase()] = img ? `https://wger.de${img.image}` : null;
+                imageMap[key] = img ? img.image : null;
             }
         }
         exerciseDataCache = { imageMap };

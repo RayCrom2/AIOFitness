@@ -29,10 +29,12 @@ async function loadExerciseData() {
     for (const json of pages) {
       for (const e of (json.results || [])) {
         const name = (e.translations || []).find((t) => t.language === 2)?.name;
-        if (!name || seen.has(name)) continue;
-        seen.add(name);
+        if (!name) continue;
+        const key = name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
         const img = (e.images || []).find((i) => i.is_main) || e.images?.[0];
-        imageMap[name.toLowerCase()] = img ? `https://wger.de${img.image}` : null;
+        imageMap[key] = img ? img.image : null;
       }
     }
     exerciseDataCache = { names: [...seen].sort(), imageMap };
@@ -237,7 +239,8 @@ export default function ExerciseLogger() {
   const [sCategoryFilter, setSCategoryFilter] = useState(null);
   const [sAddOpen, setSAddOpen] = useState(false);
   const [ending, setEnding] = useState(false);
-  const [saveName, setSaveName] = useState("");
+  const [workoutLogName, setWorkoutLogName] = useState("");
+  const [saveAsRoutine, setSaveAsRoutine] = useState(false);
   const sSearchRef = useRef(null);
 
   // Derived session stats — only count sets marked done
@@ -308,7 +311,6 @@ export default function ExerciseLogger() {
 
     setSAddOpen(false);
     setEnding(false);
-    setSaveName("");
     setView("session");
   }
   function goRoutineSession(r) {
@@ -338,7 +340,6 @@ export default function ExerciseLogger() {
 
     setSAddOpen(false);
     setEnding(false);
-    setSaveName(r.name);
     setView("session");
   }
   async function deleteRoutine(id) {
@@ -542,42 +543,46 @@ export default function ExerciseLogger() {
   function sRemoveEx(exIdx) {
     setSessionExs((prev) => prev.filter((_, i) => i !== exIdx));
   }
-  function doSaveAsRoutine() {
-    if (!saveName.trim()) return;
-    requireAuth(async () => {
-      const { data: { user: u } } = await supabase.auth.getUser();
-      const exercises = sessionExs.map((ex) => ({
-        name: ex.name,
-        unit: ex.unit,
-        sets: ex.sets.map(({ done: _, ...s }) => ({
-          reps: Number(s.reps) || 1,
-          weight: s.weight !== "" ? Number(s.weight) : null,
-          rir: s.rir !== "" ? Number(s.rir) : null,
-        })),
-      }));
-      const { data } = await supabase
-        .from("exercise_routines")
-        .insert({ user_id: u.id, name: saveName.trim(), exercises })
-        .select()
-        .single();
-      if (data) setRoutines((prev) => [...prev, data]);
-      finishSession();
-    });
-  }
-  async function finishSession() {
-    const { data: { user: u } } = await supabase.auth.getUser();
-    if (sessionExs.length > 0) {
-      const { data: newSession } = await supabase
-        .from('workout_sessions')
-        .insert({ user_id: u.id, name: sessionName, exercises: sessionExs, completed_at: new Date().toISOString() })
-        .select()
-        .single();
-      if (newSession) setPastWorkouts((prev) => [newSession, ...prev]);
-    }
-
+  function resetSession() {
     setView("select");
     setEnding(false);
     setSessionExs([]);
+  }
+  function handleFinish() {
+    requireAuth(async () => {
+      const { data: { user: u } } = await supabase.auth.getUser();
+
+      const logName = workoutLogName.trim() || sessionName;
+      if (saveAsRoutine) {
+        const exercises = sessionExs.map((ex) => ({
+          name: ex.name,
+          unit: ex.unit,
+          sets: ex.sets.map(({ done: _, ...s }) => ({
+            reps: Number(s.reps) || 1,
+            weight: s.weight !== "" ? Number(s.weight) : null,
+            rir: s.rir !== "" ? Number(s.rir) : null,
+          })),
+        }));
+        const { data } = await supabase
+          .from("exercise_routines")
+          .insert({ user_id: u.id, name: logName, exercises })
+          .select()
+          .single();
+        if (data) setRoutines((prev) => [...prev, data]);
+      }
+
+      if (sessionExs.length > 0) {
+        const logName = workoutLogName.trim() || sessionName;
+        const { data: newSession } = await supabase
+          .from('workout_sessions')
+          .insert({ user_id: u.id, name: logName, exercises: sessionExs, completed_at: new Date().toISOString() })
+          .select()
+          .single();
+        if (newSession) setPastWorkouts((prev) => [newSession, ...prev]);
+      }
+
+      resetSession();
+    });
   }
 
   // ═══════════════════════════════════════════════
@@ -825,9 +830,12 @@ export default function ExerciseLogger() {
         </div>
         {!ending && (
           <button
-            onClick={() =>
-              sessionExs.length === 0 ? finishSession() : setEnding(true)
-            }
+            onClick={() => {
+              if (sessionExs.length === 0) { resetSession(); return; }
+              setWorkoutLogName(sessionName);
+              setSaveAsRoutine(false);
+              setEnding(true);
+            }}
             className="bg-transparent border border-[#e0e0e0] rounded-lg px-4 py-1.5 cursor-pointer text-[13px] text-[#555] font-semibold shrink-0"
           >
             End Session
@@ -839,7 +847,7 @@ export default function ExerciseLogger() {
       {/* End session panel */}
       {ending && (
         <div className="bg-white rounded-xl px-6 py-5 shadow-[0_4px_14px_rgba(0,0,0,0.07)] mb-6 border-2 border-[#ff8c42]">
-          <div className="flex justify-between items-start mb-3">
+          <div className="flex justify-between items-start mb-4">
             <div>
               <h3>Finish Workout</h3>
               <p className="text-[13px] text-[#888] m-0">
@@ -855,30 +863,32 @@ export default function ExerciseLogger() {
               ✕
             </button>
           </div>
-          <div className="flex gap-2.5 flex-wrap mb-3">
+
+          {/* Workout name */}
+          <input
+            value={workoutLogName}
+            onChange={(e) => setWorkoutLogName(e.target.value)}
+            placeholder="Workout name…"
+            className="py-2.5 px-3 border border-[#e0e0e0] rounded-lg text-sm outline-none bg-[#fafafa] w-full mb-3"
+          />
+
+          {/* Save as routine toggle */}
+          <label className="flex items-center gap-2.5 cursor-pointer mb-3 select-none">
             <input
-              value={saveName}
-              onChange={(e) => setSaveName(e.target.value)}
-              placeholder="Routine name to save as…"
-              className="py-2.5 px-3 border border-[#e0e0e0] rounded-lg text-sm outline-none bg-[#fafafa] min-w-0 flex-[1_1_200px]"
+              type="checkbox"
+              checked={saveAsRoutine}
+              onChange={(e) => setSaveAsRoutine(e.target.checked)}
+              className="w-4 h-4 accent-[#ff8c42] cursor-pointer"
             />
-            <button
-              onClick={doSaveAsRoutine}
-              disabled={!saveName.trim()}
-              className={
-                saveName.trim()
-                  ? "bg-[#ff8c42] text-white border-0 rounded-lg px-5 py-2.5 font-semibold text-sm cursor-pointer"
-                  : "bg-[#f0f0f0] text-[#aaa] border-0 rounded-lg px-5 py-2.5 font-semibold text-sm cursor-default"
-              }
-            >
-              Save as Routine
-            </button>
-          </div>
+            <span className="text-sm text-[#555]">Save as reusable routine</span>
+          </label>
+
+
           <button
-            onClick={finishSession}
-            className="bg-transparent border border-[#e0e0e0] rounded-lg px-4 py-2 cursor-pointer text-[13px] text-[#666]"
+            onClick={handleFinish}
+            className="bg-[#ff8c42] text-white border-0 rounded-lg px-5 py-2.5 font-semibold text-sm cursor-pointer w-full"
           >
-            Finish Without Saving
+            Finish Workout
           </button>
         </div>
       )}
