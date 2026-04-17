@@ -1,19 +1,48 @@
 import { useState, useRef, useEffect } from "react";
 import { supabase } from "../lib/supabase";
-import { LuCalendar } from "react-icons/lu";
-import { monthAbbr } from "./Nutrition.jsx";
 import { useAuth } from "../context/AuthContext";
 import WorkoutHistoryCard from "../components/WorkoutHistoryCard.jsx";
 
 
 const WGER_CATEGORIES = [
-  { label: 'Abs',       id: 10 },
-  { label: 'Arms',      id: 8  },
-  { label: 'Back',      id: 12 },
-  { label: 'Chest',     id: 11 },
-  { label: 'Legs',      id: 9  },
+  { label: 'Abs', id: 10 },
+  { label: 'Arms', id: 8 },
+  { label: 'Back', id: 12 },
+  { label: 'Chest', id: 11 },
+  { label: 'Legs', id: 9 },
   { label: 'Shoulders', id: 13 },
 ];
+
+// Single cache for all exercise data: { names: string[], imageMap: { [lowerName]: url | null } }
+let exerciseDataCache = null;
+async function loadExerciseData() {
+  if (exerciseDataCache) return exerciseDataCache;
+  try {
+    const pages = await Promise.all(
+      [0, 100, 200, 300, 400, 500, 600, 700, 800].map((offset) =>
+        fetch(`https://wger.de/api/v2/exerciseinfo/?format=json&limit=100&offset=${offset}`)
+          .then((r) => r.json())
+      )
+    );
+    const imageMap = {};
+    const seen = new Set();
+    for (const json of pages) {
+      for (const e of (json.results || [])) {
+        const name = (e.translations || []).find((t) => t.language === 2)?.name;
+        if (!name) continue;
+        const key = name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const img = (e.images || []).find((i) => i.is_main) || e.images?.[0];
+        imageMap[key] = img ? img.image : null;
+      }
+    }
+    exerciseDataCache = { names: [...seen].sort(), imageMap };
+    return exerciseDataCache;
+  } catch {
+    return { names: [], imageMap: {} };
+  }
+}
 
 async function searchWgerExercises(term, categoryId) {
   try {
@@ -28,34 +57,17 @@ async function searchWgerExercises(term, categoryId) {
       )].sort();
       return term.trim() ? names.filter((n) => n.toLowerCase().includes(term.toLowerCase())) : names;
     }
-    const res = await fetch(
-      `https://wger.de/api/v2/exercise/search/?term=${encodeURIComponent(term)}&language=english&format=json`
-    );
-    const json = await res.json();
-    return [...new Set((json.suggestions || []).map((s) => s.value).filter(Boolean))];
+    const { names } = await loadExerciseData();
+    return names.filter((n) => n.toLowerCase().includes(term.toLowerCase()));
   } catch {
     return [];
   }
 }
 
-const exerciseImageCache = {};
 async function fetchExerciseImage(name) {
   const key = name.toLowerCase();
-  if (key in exerciseImageCache) return exerciseImageCache[key];
-  const term = name.replace(/\s*\(.*?\)\s*/g, '').trim();
-  try {
-    const res = await fetch(
-      `https://wger.de/api/v2/exercise/search/?term=${encodeURIComponent(term)}&language=english&format=json`
-    );
-    const json = await res.json();
-    const image = json.suggestions?.[0]?.data?.image;
-    const url = image ? `https://wger.de${image}` : null;
-    exerciseImageCache[key] = url;
-    return url;
-  } catch {
-    exerciseImageCache[key] = null;
-    return null;
-  }
+  const { imageMap } = await loadExerciseData();
+  return imageMap[key] ?? null;
 }
 
 // ── Shared exercise card component
@@ -225,10 +237,10 @@ export default function ExerciseLogger() {
   const [sSearch, setSSearch] = useState("");
   const [sSearchResults, setSSearchResults] = useState([]);
   const [sCategoryFilter, setSCategoryFilter] = useState(null);
-  const [sDropdownOpen, setSDropdownOpen] = useState(false);
-  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [sAddOpen, setSAddOpen] = useState(false);
   const [ending, setEnding] = useState(false);
-  const [saveName, setSaveName] = useState("");
+  const [workoutLogName, setWorkoutLogName] = useState("");
+  const [saveAsRoutine, setSaveAsRoutine] = useState(false);
   const sSearchRef = useRef(null);
 
   // Derived session stats — only count sets marked done
@@ -249,13 +261,11 @@ export default function ExerciseLogger() {
     day: "numeric",
   });
 
-  // Close both search dropdowns on outside click
+  // Close create-routine search dropdown on outside click
   useEffect(() => {
     function handleClick(e) {
       if (cSearchRef.current && !cSearchRef.current.contains(e.target))
         setCDropdownOpen(false);
-      if (sSearchRef.current && !sSearchRef.current.contains(e.target))
-        setSDropdownOpen(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -283,9 +293,6 @@ export default function ExerciseLogger() {
       .then(({ data }) => setPastWorkouts(data || []));
   }, [user]);
 
-  function showCalendar() {
-    setCalendarOpen((prev) => !prev);
-  }
 
   // ── select actions
   function goCreateRoutine() {
@@ -297,13 +304,13 @@ export default function ExerciseLogger() {
     setView("create");
   }
   function goFreeSession() {
-    setSessionName("New Workout");
+    setSessionName(today.toString());
     setSessionSource("free");
     setSessionExs([]);
     setSSearch("");
-    setSDropdownOpen(false);
+
+    setSAddOpen(false);
     setEnding(false);
-    setSaveName("");
     setView("session");
   }
   function goRoutineSession(r) {
@@ -330,9 +337,9 @@ export default function ExerciseLogger() {
     });
     setSessionExs(initialExs);
     setSSearch("");
-    setSDropdownOpen(false);
+
+    setSAddOpen(false);
     setEnding(false);
-    setSaveName(r.name);
     setView("session");
   }
   async function deleteRoutine(id) {
@@ -465,7 +472,7 @@ export default function ExerciseLogger() {
       sessionExs.some((e) => e.name.toLowerCase() === trimmed.toLowerCase())
     ) {
       setSSearch("");
-      setSDropdownOpen(false);
+
       return;
     }
     setSessionExs((prev) => [
@@ -477,7 +484,7 @@ export default function ExerciseLogger() {
       },
     ]);
     setSSearch("");
-    setSDropdownOpen(false);
+
   }
   function sHandleSearchKey(e) {
     if (e.key !== "Enter") return;
@@ -536,39 +543,46 @@ export default function ExerciseLogger() {
   function sRemoveEx(exIdx) {
     setSessionExs((prev) => prev.filter((_, i) => i !== exIdx));
   }
-  function doSaveAsRoutine() {
-    if (!saveName.trim()) return;
-    requireAuth(async () => {
-      const { data: { user: u } } = await supabase.auth.getUser();
-      const exercises = sessionExs.map((ex) => ({
-        name: ex.name,
-        unit: ex.unit,
-        sets: ex.sets.map(({ done: _, ...s }) => ({
-          reps: Number(s.reps) || 1,
-          weight: s.weight !== "" ? Number(s.weight) : null,
-          rir: s.rir !== "" ? Number(s.rir) : null,
-        })),
-      }));
-      const { data } = await supabase
-        .from("exercise_routines")
-        .insert({ user_id: u.id, name: saveName.trim(), exercises })
-        .select()
-        .single();
-      if (data) setRoutines((prev) => [...prev, data]);
-      finishSession();
-    });
-  }
-  async function finishSession() {
-    const { data: { user: u } } = await supabase.auth.getUser();
-    await supabase.from('workout_sessions').insert({
-      user_id: u.id,
-      name: sessionName,
-      exercises: sessionExs,  // includes done booleans per set
-      completed_at: new Date().toISOString(),
-    });
+  function resetSession() {
     setView("select");
     setEnding(false);
     setSessionExs([]);
+  }
+  function handleFinish() {
+    requireAuth(async () => {
+      const { data: { user: u } } = await supabase.auth.getUser();
+
+      const logName = workoutLogName.trim() || sessionName;
+      if (saveAsRoutine) {
+        const exercises = sessionExs.map((ex) => ({
+          name: ex.name,
+          unit: ex.unit,
+          sets: ex.sets.map(({ done: _, ...s }) => ({
+            reps: Number(s.reps) || 1,
+            weight: s.weight !== "" ? Number(s.weight) : null,
+            rir: s.rir !== "" ? Number(s.rir) : null,
+          })),
+        }));
+        const { data } = await supabase
+          .from("exercise_routines")
+          .insert({ user_id: u.id, name: logName, exercises })
+          .select()
+          .single();
+        if (data) setRoutines((prev) => [...prev, data]);
+      }
+
+      if (sessionExs.length > 0) {
+        const logName = workoutLogName.trim() || sessionName;
+        const { data: newSession } = await supabase
+          .from('workout_sessions')
+          .insert({ user_id: u.id, name: logName, exercises: sessionExs, completed_at: new Date().toISOString() })
+          .select()
+          .single();
+        if (newSession) setPastWorkouts((prev) => [newSession, ...prev]);
+      }
+
+      resetSession();
+    });
   }
 
   // ═══════════════════════════════════════════════
@@ -662,7 +676,7 @@ export default function ExerciseLogger() {
           </div>
         ) : (
           pastWorkouts.map((w) => (
-            <WorkoutHistoryCard key={w.id} session={w} onDelete={deleteWorkout}/>
+            <WorkoutHistoryCard key={w.id} session={w} onDelete={deleteWorkout} />
           ))
         )}
 
@@ -720,51 +734,51 @@ export default function ExerciseLogger() {
                 >{cat.label}</button>
               ))}
             </div>
-          <div className="relative">
-            <input
-              value={cSearch}
-              onChange={(e) => {
-                setCSearch(e.target.value);
-                setCDropdownOpen(true);
-                setCError("");
-              }}
-              onKeyDown={cHandleSearchKey}
-              onFocus={() => setCDropdownOpen(true)}
-              placeholder="Search exercises or type a custom name…"
-              className="py-2.5 px-3 border border-[#e0e0e0] rounded-lg text-sm outline-none bg-[#fafafa] min-w-0 w-full box-border pl-9"
-            />
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none text-[#aaa]">
-              🔍
-            </span>
-            {cDropdownOpen && (cSearch.trim() || cCategoryFilter) && (
-              <div className="absolute top-[calc(100%+4px)] left-0 right-0 bg-white border border-[#e8e8e8] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.1)] z-[100] max-h-[220px] overflow-y-auto">
-                {cSearchResults.length > 0 ? (
-                  cSearchResults.map((ex) => (
+            <div className="relative">
+              <input
+                value={cSearch}
+                onChange={(e) => {
+                  setCSearch(e.target.value);
+                  setCDropdownOpen(true);
+                  setCError("");
+                }}
+                onKeyDown={cHandleSearchKey}
+                onFocus={() => setCDropdownOpen(true)}
+                placeholder="Search exercises or type a custom name…"
+                className="py-2.5 px-3 border border-[#e0e0e0] rounded-lg text-sm outline-none bg-[#fafafa] min-w-0 w-full box-border pl-9"
+              />
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none text-[#aaa]">
+                🔍
+              </span>
+              {cDropdownOpen && (cSearch.trim() || cCategoryFilter) && (
+                <div className="absolute top-[calc(100%+4px)] left-0 right-0 bg-white border border-[#e8e8e8] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.1)] z-[100] max-h-[220px] overflow-y-auto">
+                  {cSearchResults.length > 0 ? (
+                    cSearchResults.map((ex) => (
+                      <button
+                        key={ex}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          cAddExercise(ex);
+                        }}
+                        className="w-full text-left bg-transparent border-0 px-3.5 py-2.5 cursor-pointer text-sm text-[#333] block hover:bg-[#fff8f2]"
+                      >
+                        {ex}
+                      </button>
+                    ))
+                  ) : (
                     <button
-                      key={ex}
                       onMouseDown={(e) => {
                         e.preventDefault();
-                        cAddExercise(ex);
+                        cAddExercise(cSearch);
                       }}
-                      className="w-full text-left bg-transparent border-0 px-3.5 py-2.5 cursor-pointer text-sm text-[#333] block hover:bg-[#fff8f2]"
+                      className="w-full text-left bg-transparent border-0 px-3.5 py-2.5 cursor-pointer text-sm text-[#ff8c42] block"
                     >
-                      {ex}
+                      + Add &ldquo;{cSearch}&rdquo; as custom exercise
                     </button>
-                  ))
-                ) : (
-                  <button
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      cAddExercise(cSearch);
-                    }}
-                    className="w-full text-left bg-transparent border-0 px-3.5 py-2.5 cursor-pointer text-sm text-[#ff8c42] block"
-                  >
-                    + Add &ldquo;{cSearch}&rdquo; as custom exercise
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -816,9 +830,12 @@ export default function ExerciseLogger() {
         </div>
         {!ending && (
           <button
-            onClick={() =>
-              sessionExs.length === 0 ? finishSession() : setEnding(true)
-            }
+            onClick={() => {
+              if (sessionExs.length === 0) { resetSession(); return; }
+              setWorkoutLogName(sessionName);
+              setSaveAsRoutine(false);
+              setEnding(true);
+            }}
             className="bg-transparent border border-[#e0e0e0] rounded-lg px-4 py-1.5 cursor-pointer text-[13px] text-[#555] font-semibold shrink-0"
           >
             End Session
@@ -830,7 +847,7 @@ export default function ExerciseLogger() {
       {/* End session panel */}
       {ending && (
         <div className="bg-white rounded-xl px-6 py-5 shadow-[0_4px_14px_rgba(0,0,0,0.07)] mb-6 border-2 border-[#ff8c42]">
-          <div className="flex justify-between items-start mb-3">
+          <div className="flex justify-between items-start mb-4">
             <div>
               <h3>Finish Workout</h3>
               <p className="text-[13px] text-[#888] m-0">
@@ -846,140 +863,40 @@ export default function ExerciseLogger() {
               ✕
             </button>
           </div>
-          <div className="flex gap-2.5 flex-wrap mb-3">
+
+          {/* Workout name */}
+          <input
+            value={workoutLogName}
+            onChange={(e) => setWorkoutLogName(e.target.value)}
+            placeholder="Workout name…"
+            className="py-2.5 px-3 border border-[#e0e0e0] rounded-lg text-sm outline-none bg-[#fafafa] w-full mb-3"
+          />
+
+          {/* Save as routine toggle */}
+          <label className="flex items-center gap-2.5 cursor-pointer mb-3 select-none">
             <input
-              value={saveName}
-              onChange={(e) => setSaveName(e.target.value)}
-              placeholder="Routine name to save as…"
-              className="py-2.5 px-3 border border-[#e0e0e0] rounded-lg text-sm outline-none bg-[#fafafa] min-w-0 flex-[1_1_200px]"
+              type="checkbox"
+              checked={saveAsRoutine}
+              onChange={(e) => setSaveAsRoutine(e.target.checked)}
+              className="w-4 h-4 accent-[#ff8c42] cursor-pointer"
             />
-            <button
-              onClick={doSaveAsRoutine}
-              disabled={!saveName.trim()}
-              className={
-                saveName.trim()
-                  ? "bg-[#ff8c42] text-white border-0 rounded-lg px-5 py-2.5 font-semibold text-sm cursor-pointer"
-                  : "bg-[#f0f0f0] text-[#aaa] border-0 rounded-lg px-5 py-2.5 font-semibold text-sm cursor-default"
-              }
-            >
-              Save as Routine
-            </button>
-          </div>
+            <span className="text-sm text-[#555]">Save as reusable routine</span>
+          </label>
+
+
           <button
-            onClick={finishSession}
-            className="bg-transparent border border-[#e0e0e0] rounded-lg px-4 py-2 cursor-pointer text-[13px] text-[#666]"
+            onClick={handleFinish}
+            className="bg-[#ff8c42] text-white border-0 rounded-lg px-5 py-2.5 font-semibold text-sm cursor-pointer w-full"
           >
-            Finish Without Saving
+            Finish Workout
           </button>
         </div>
       )}
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        {[
-          {
-            label: "Exercises",
-            value: uniqueEx,
-            sub: "with completed sets",
-            color: "#ff8c42",
-          },
-          {
-            label: "Sets Done",
-            value: totalSets,
-            sub: "sets completed",
-            color: "#4f8ef7",
-          },
-          {
-            label: "Volume",
-            value: totalVol > 0 ? totalVol.toLocaleString() : "—",
-            sub: "weighted only",
-            color: "#5cb85c",
-          },
-        ].map((card) => (
-          <div
-            key={card.label}
-            className="bg-white rounded-xl px-5 py-4 shadow-[0_4px_14px_rgba(0,0,0,0.07)] text-center"
-            style={{ borderTop: `4px solid ${card.color}` }}
-          >
-            <div
-              className="text-[26px] font-bold"
-              style={{ color: card.color }}
-            >
-              {card.value}
-            </div>
-            <div className="text-[11px] text-[#aaa] mt-0.5">{card.sub}</div>
-            <div className="text-[13px] font-semibold mt-1">{card.label}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Add exercise search */}
-      <div className="bg-white rounded-xl px-5 py-4 shadow-[0_4px_14px_rgba(0,0,0,0.07)] mb-4">
-        <div ref={sSearchRef}>
-          <p className="text-[11px] font-semibold text-[#aaa] mb-1.5 uppercase tracking-wide">Discover workouts for:</p>
-          <div className="flex gap-1.5 flex-wrap mb-2.5">
-            {WGER_CATEGORIES.map((cat) => (
-              <button
-                key={cat.id}
-                type="button"
-                onMouseDown={(e) => { e.preventDefault(); setSCategoryFilter(sCategoryFilter === cat.id ? null : cat.id); setSDropdownOpen(true); }}
-                className={sCategoryFilter === cat.id
-                  ? "px-2.5 py-1 rounded-full text-[11px] font-semibold cursor-pointer border bg-[#ff8c42] text-white border-[#ff8c42]"
-                  : "px-2.5 py-1 rounded-full text-[11px] font-semibold cursor-pointer border border-[#e0e0e0] bg-white text-[#555]"}
-              >{cat.label}</button>
-            ))}
-          </div>
-          <div className="relative">
-          <input
-            value={sSearch}
-            onChange={(e) => {
-              setSSearch(e.target.value);
-              setSDropdownOpen(true);
-            }}
-            onKeyDown={sHandleSearchKey}
-            onFocus={() => setSDropdownOpen(true)}
-            placeholder="Search exercises or type a custom name…"
-            className="py-2.5 px-3 border border-[#e0e0e0] rounded-lg text-sm outline-none bg-[#fafafa] min-w-0 w-full box-border pl-9"
-          />
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none text-[#aaa]">
-            🔍
-          </span>
-          {sDropdownOpen && (sSearch.trim() || sCategoryFilter) && (
-            <div className="absolute top-[calc(100%+4px)] left-0 right-0 bg-white border border-[#e8e8e8] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.1)] z-[100] max-h-[220px] overflow-y-auto">
-              {sSearchResults.length > 0 ? (
-                sSearchResults.map((ex) => (
-                  <button
-                    key={ex}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      sAddExercise(ex);
-                    }}
-                    className="w-full text-left bg-transparent border-0 px-3.5 py-2.5 cursor-pointer text-sm text-[#333] block hover:bg-[#fff8f2]"
-                  >
-                    {ex}
-                  </button>
-                ))
-              ) : (
-                <button
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    sAddExercise(sSearch);
-                  }}
-                  className="w-full text-left bg-transparent border-0 px-3.5 py-2.5 cursor-pointer text-sm text-[#ff8c42] block"
-                >
-                  + Add &ldquo;{sSearch}&rdquo; as custom exercise
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-        </div>
-      </div>
-
       {/* Exercise cards */}
-      {sessionExs.length === 0 ? (
-        <div className="bg-white rounded-xl py-10 text-center text-[#bbb] text-sm shadow-sm">
-          Search for an exercise above to get started.
+      {sessionExs.length === 0 && !sAddOpen ? (
+        <div className="bg-white rounded-xl py-10 text-center text-[#bbb] text-sm shadow-sm mb-3">
+          No exercises yet — add one below to get started.
         </div>
       ) : (
         sessionExs.map((ex, exIdx) => (
@@ -995,6 +912,63 @@ export default function ExerciseLogger() {
             onToggleDone={(si) => sToggleDone(exIdx, si)}
           />
         ))
+      )}
+
+      {/* Add exercise */}
+      {sAddOpen ? (
+        <div className="bg-white rounded-xl px-5 py-4 shadow-[0_4px_14px_rgba(0,0,0,0.07)] mb-3">
+          <div ref={sSearchRef}>
+            <p className="text-[11px] font-semibold text-[#aaa] mb-1.5 uppercase tracking-wide">Discover workouts for:</p>
+            <div className="flex gap-1.5 flex-wrap mb-2.5">
+              {WGER_CATEGORIES.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); setSCategoryFilter(sCategoryFilter === cat.id ? null : cat.id); }}
+                  className={sCategoryFilter === cat.id
+                    ? "px-2.5 py-1 rounded-full text-[11px] font-semibold cursor-pointer border bg-[#ff8c42] text-white border-[#ff8c42]"
+                    : "px-2.5 py-1 rounded-full text-[11px] font-semibold cursor-pointer border border-[#e0e0e0] bg-white text-[#555]"}
+                >{cat.label}</button>
+              ))}
+            </div>
+            <div className="relative">
+              <input
+                value={sSearch}
+                onChange={(e) => { setSSearch(e.target.value); }}
+                onKeyDown={sHandleSearchKey}
+                placeholder="Search exercises or type a custom name…"
+                className="py-2.5 px-3 border border-[#e0e0e0] rounded-lg text-sm outline-none bg-[#fafafa] min-w-0 w-full box-border pl-9"
+                autoFocus
+              />
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none text-[#aaa]">🔍</span>
+              {(sSearch.trim() || sCategoryFilter) && (
+                <div className="absolute top-[calc(100%+4px)] left-0 right-0 bg-white border border-[#e8e8e8] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.1)] z-[100] max-h-[220px] overflow-y-auto">
+                  {sSearchResults.length > 0 ? (
+                    sSearchResults.map((ex) => (
+                      <button
+                        key={ex}
+                        onMouseDown={(e) => { e.preventDefault(); sAddExercise(ex); setSAddOpen(false); }}
+                        className="w-full text-left bg-transparent border-0 px-3.5 py-2.5 cursor-pointer text-sm text-[#333] block hover:bg-[#fff8f2]"
+                      >{ex}</button>
+                    ))
+                  ) : (
+                    <button
+                      onMouseDown={(e) => { e.preventDefault(); sAddExercise(sSearch); setSAddOpen(false); }}
+                      className="w-full text-left bg-transparent border-0 px-3.5 py-2.5 cursor-pointer text-sm text-[#ff8c42] block"
+                    >+ Add &ldquo;{sSearch}&rdquo; as custom exercise</button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setSAddOpen(true)}
+          className="w-full bg-white border-2 border-dashed border-[#e0e0e0] rounded-xl py-3.5 cursor-pointer text-[14px] font-semibold text-[#aaa] hover:border-[#ff8c42] hover:text-[#ff8c42] mb-3"
+        >
+          + Add Exercise
+        </button>
       )}
     </div>
   );
