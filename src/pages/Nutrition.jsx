@@ -7,7 +7,6 @@ export const monthAbbr = new Date()
   .toLocaleString("default", { month: "short" })
   .toUpperCase();
 
-const CARD_ORDER_KEY = "nutrition_card_order";
 const VISIBLE_KEY = "nutrition_visible_macros";
 
 const SERVING_UNITS = ["g", "oz", "fl oz", "ml", "lb", "cup", "tbsp", "tsp"];
@@ -53,6 +52,8 @@ const MACROS = [
   { key: "sugar", label: "Sugar", unit: "g", color: "#c87dd4" },
 ];
 
+const DEFAULT_GOALS = { calories: 2000, protein: 150, fat: 65, carbs: 250, fiber: 25, sugar: 50 };
+
 function dateStr(offset = 0) {
   const d = new Date();
   d.setDate(d.getDate() + offset);
@@ -77,15 +78,6 @@ export default function Nutrition() {
   const [libraryAmounts, setLibraryAmounts] = useState({});
   const [savedFeedback, setSavedFeedback] = useState(false);
   const [error, setError] = useState("");
-  const [cardOrder, setCardOrder] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(CARD_ORDER_KEY));
-      if (Array.isArray(saved) && saved.length === MACROS.length) return saved;
-    } catch {}
-    return MACROS.map((m) => m.key);
-  });
-  const [dragIndex, setDragIndex] = useState(null);
-  const [dragOverIndex, setDragOverIndex] = useState(null);
   const [visibleMacros, setVisibleMacros] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(VISIBLE_KEY));
@@ -93,6 +85,7 @@ export default function Nutrition() {
     } catch {}
     return new Set(MACROS.map((m) => m.key));
   });
+  const [goals, setGoals] = useState(DEFAULT_GOALS);
   const [menuOpen, setMenuOpen] = useState(false);
   const [usdaResults, setUsdaResults] = useState([]);
   const [usdaLoading, setUsdaLoading] = useState(false);
@@ -101,12 +94,6 @@ export default function Nutrition() {
   const usdaRef = useRef(null);
   const usdaDebounce = useRef(null);
 
-  const orderedMacros = cardOrder.map((key) =>
-    MACROS.find((m) => m.key === key),
-  );
-  const visibleOrderedMacros = orderedMacros.filter((m) =>
-    visibleMacros.has(m.key),
-  );
   const visibleMacroList = MACROS.filter((m) => visibleMacros.has(m.key));
 
   const filteredSortedFoods = (() => {
@@ -147,35 +134,9 @@ export default function Nutrition() {
         next.add(key);
       }
       localStorage.setItem(VISIBLE_KEY, JSON.stringify([...next]));
-      saveMacroPrefs(cardOrder, next);
+      saveMacroPrefs(next);
       return next;
     });
-  }
-
-  function handleDragStart(i) {
-    setDragIndex(i);
-  }
-
-  function handleDragOver(e, i) {
-    e.preventDefault();
-    if (i !== dragOverIndex) setDragOverIndex(i);
-  }
-
-  function handleDrop(i) {
-    if (dragIndex === null || dragIndex === i) return;
-    const next = [...cardOrder];
-    const [moved] = next.splice(dragIndex, 1);
-    next.splice(i, 0, moved);
-    setCardOrder(next);
-    localStorage.setItem(CARD_ORDER_KEY, JSON.stringify(next));
-    saveMacroPrefs(next, visibleMacros);
-    setDragIndex(null);
-    setDragOverIndex(null);
-  }
-
-  function handleDragEnd() {
-    setDragIndex(null);
-    setDragOverIndex(null);
   }
 
   useEffect(() => {
@@ -209,27 +170,36 @@ export default function Nutrition() {
       .then(({ data }) => setSavedFoods(data || []));
   }, [user]);
 
+  // ── load nutrition goals from DB
+  useEffect(() => {
+    if (!user) { setGoals(DEFAULT_GOALS); return; }
+    supabase
+      .from("nutrition_goals")
+      .select("*")
+      .eq("user_id", user.id)
+      .maybeSingle()
+      .then(({ data }) => { if (data) setGoals(data); });
+  }, [user]);
+
   // ── load macro preferences from DB
   useEffect(() => {
     if (!user) return;
     supabase
       .from("user_preferences")
-      .select("nutrition_card_order, nutrition_visible_macros")
+      .select("nutrition_visible_macros")
       .eq("user_id", user.id)
       .maybeSingle()
       .then(({ data }) => {
         if (!data) return;
-        if (Array.isArray(data.nutrition_card_order) && data.nutrition_card_order.length === MACROS.length)
-          setCardOrder(data.nutrition_card_order);
         if (Array.isArray(data.nutrition_visible_macros))
           setVisibleMacros(new Set(data.nutrition_visible_macros));
       });
   }, [user]);
 
-  async function saveMacroPrefs(order, visible) {
+  async function saveMacroPrefs(visible) {
     if (!user) { console.warn("saveMacroPrefs: no user"); return; }
     const { error } = await supabase.from("user_preferences").upsert(
-      { user_id: user.id, nutrition_card_order: order, nutrition_visible_macros: [...visible] },
+      { user_id: user.id, nutrition_visible_macros: [...visible] },
       { onConflict: "user_id" }
     );
     if (error) console.error("saveMacroPrefs error:", error);
@@ -505,14 +475,22 @@ export default function Nutrition() {
         {today} — entries reset each day
       </p>
 
-      {/* Daily Summary Cards */}
-      <div style={{ marginBottom: 24 }}>
+      {/* Daily Progress Bars */}
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 10,
+          padding: "16px 20px",
+          boxShadow: "0 4px 14px rgba(0,0,0,0.07)",
+          marginBottom: 24,
+        }}
+      >
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            marginBottom: 10,
+            marginBottom: 14,
           }}
         >
           <span
@@ -524,7 +502,7 @@ export default function Nutrition() {
               letterSpacing: "0.05em",
             }}
           >
-            Daily Totals
+            Daily Progress
           </span>
           <div ref={menuRef} style={{ position: "relative" }}>
             <button
@@ -615,49 +593,71 @@ export default function Nutrition() {
             )}
           </div>
         </div>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: `repeat(${visibleOrderedMacros.length}, 1fr)`,
-            gap: 12,
-          }}
-        >
-          {visibleOrderedMacros.map((m, i) => (
-            <div
-              key={m.key}
-              draggable
-              onDragStart={() => handleDragStart(i)}
-              onDragOver={(e) => handleDragOver(e, i)}
-              onDrop={() => handleDrop(i)}
-              onDragEnd={handleDragEnd}
-              style={{
-                background: "#fff",
-                borderRadius: 10,
-                padding: "14px 18px",
-                boxShadow:
-                  dragOverIndex === i && dragIndex !== i
-                    ? `0 0 0 2px ${m.color}`
-                    : "0 4px 14px rgba(0,0,0,0.07)",
-                borderTop: `4px solid ${m.color}`,
-                textAlign: "center",
-                cursor: "grab",
-                opacity: dragIndex === i ? 0.4 : 1,
-                transition: "opacity 0.15s, box-shadow 0.15s",
-                userSelect: "none",
-              }}
-            >
-              <div style={{ fontSize: 22, fontWeight: 700, color: m.color }}>
-                {totals[m.key].toFixed(m.key === "calories" ? 0 : 1)}
+        {visibleMacroList.map((m) => {
+          const consumed = totals[m.key];
+          const limit = goals[m.key] || 1;
+          const pct = Math.min(100, (consumed / limit) * 100);
+          const over = consumed > limit;
+          return (
+            <div key={m.key} style={{ marginBottom: 14 }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                  marginBottom: 5,
+                  fontSize: 13,
+                }}
+              >
+                <span
+                  style={{
+                    fontWeight: 600,
+                    color: "#333",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 7,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: m.color,
+                      display: "inline-block",
+                      flexShrink: 0,
+                    }}
+                  />
+                  {m.label}
+                </span>
+                <span style={{ color: over ? "#e05c5c" : "#888", fontWeight: over ? 700 : 400 }}>
+                  {m.key === "calories"
+                    ? consumed.toFixed(0)
+                    : consumed.toFixed(1)}{" "}
+                  / {limit} {m.unit}
+                </span>
               </div>
-              <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>
-                {m.unit}
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>
-                {m.label}
+              <div
+                style={{
+                  height: 8,
+                  background: "#f0f0f0",
+                  borderRadius: 99,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    height: "100%",
+                    width: `${pct}%`,
+                    background: over ? "#e05c5c" : m.color,
+                    borderRadius: 99,
+                    transition: "width 0.3s ease",
+                  }}
+                />
               </div>
             </div>
-          ))}
-        </div>
+          );
+        })}
       </div>
 
       {/* Entry Form */}
@@ -965,7 +965,7 @@ export default function Nutrition() {
                     ? "★ Already Saved"
                     : savedFeedback
                       ? "★ Saved!"
-                      : "☆ Save to My Foods"}
+                      : "☆ Save to My Food Library"}
                 </button>
               );
             })()}
@@ -973,7 +973,7 @@ export default function Nutrition() {
         </form>
       </div>
 
-      {/* My Foods Library */}
+      {/* My Food Library Library */}
       <div
         style={{
           background: "#fff",
@@ -1000,7 +1000,7 @@ export default function Nutrition() {
           }}
         >
           <span>
-            My Foods{" "}
+            My Food Library{" "}
             <span
               style={{
                 fontSize: 12,
@@ -1027,7 +1027,7 @@ export default function Nutrition() {
                 fontSize: 14,
               }}
             >
-              No saved foods yet — check "Save to My Foods" when adding an
+              No saved foods yet — check "Save to My Food Library" when adding an
               entry.
             </p>
           ) : (
@@ -1153,7 +1153,7 @@ export default function Nutrition() {
                     </button>
                     <button
                       onClick={() => {
-                        if (window.confirm("Remove from My Foods?"))
+                        if (window.confirm("Remove from My Food Library?"))
                           handleDeleteSaved(food.id);
                       }}
                       style={{
@@ -1165,7 +1165,7 @@ export default function Nutrition() {
                         lineHeight: 1,
                         padding: "4px 6px",
                       }}
-                      title="Remove from My Foods"
+                      title="Remove from My Food Library"
                     >
                       ✕
                     </button>
@@ -1286,8 +1286,8 @@ export default function Nutrition() {
                         style={{
                           padding: "10px 16px",
                           textAlign: "center",
-                          color: m.key === "calories" ? "#ff8c42" : "#333",
-                          fontWeight: m.key === "calories" ? 600 : 400,
+                          color: m.color,
+                          fontWeight: m.key === "calories" ? 700 : 600,
                         }}
                       >
                         {entry[m.key] > 0 ? (
@@ -1335,7 +1335,7 @@ export default function Nutrition() {
                             lineHeight: 1,
                             padding: 4,
                           }}
-                          title="Save to My Foods"
+                          title="Save to My Food Library"
                         >
                           ☆
                         </button>
