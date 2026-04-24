@@ -23,6 +23,7 @@ export default function NutrientCompare({ foodA, onClose, style: styleProp = {} 
   const [results, setResults] = useState([]);
   const [foodB, setFoodB] = useState(null);
   const debounceRef = useRef(null);
+  const containerRef = useRef(null);
 
   useEffect(() => {
     if (!query.trim()) { setResults([]); return; }
@@ -38,6 +39,16 @@ export default function NutrientCompare({ foodA, onClose, style: styleProp = {} 
     }, 350);
   }, [query]);
 
+  useEffect(() => {
+    function handleMouseDown(e) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        onClose();
+      }
+    }
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [onClose]);
+
   const containerStyle = {
     position: "absolute",
     left: "calc(100% + 10px)",
@@ -52,7 +63,7 @@ export default function NutrientCompare({ foodA, onClose, style: styleProp = {} 
   };
 
   return (
-    <div style={containerStyle}>
+    <div ref={containerRef} style={containerStyle}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
         <div style={{ flex: 1, minWidth: 0 }}>

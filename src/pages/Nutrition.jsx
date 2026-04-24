@@ -94,6 +94,8 @@ export default function Nutrition() {
   const [usdaLoading, setUsdaLoading] = useState(false);
   const [usdaOpen, setUsdaOpen] = useState(false);
   const [hoveredFood, setHoveredFood] = useState(null);
+  const [hoveredLibraryId, setHoveredLibraryId] = useState(null);
+  const [pinnedFood, setPinnedFood] = useState(null);
   const [compareFood, setCompareFood] = useState(null);
   const [selectedUsdaFood, setSelectedUsdaFood] = useState(null);
   const [servingInput, setServingInput] = useState("");
@@ -481,6 +483,8 @@ export default function Nutrition() {
     await supabase.from("custom_foods").delete().eq("id", id);
     setSavedFoods((prev) => prev.filter((f) => f.id !== id));
   }
+
+  const sortedEntries = [...entries].sort((a, b) => parseLoggedTime(a.logged_time) - parseLoggedTime(b.logged_time));
 
   const totals = MACROS.reduce((acc, m) => {
     acc[m.key] = entries.reduce((sum, e) => sum + (e[m.key] || 0), 0);
@@ -1094,6 +1098,7 @@ export default function Nutrition() {
               )}
               {filteredSortedFoods.map((food) => {
                 const normalizedFood = {
+                  id: food.id,
                   description: food.name,
                   servingSize: food.serving_amount,
                   servingSizeUnit: food.serving_unit,
@@ -1109,10 +1114,18 @@ export default function Nutrition() {
                 return (
                 <div
                   key={food.id}
-                  onMouseEnter={(e) => {
-                    setHoveredFood(normalizedFood);
+                  title="Click to compare with another item"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => {
+                    if (pinnedFood?.id === food.id) {
+                      setPinnedFood(null);
+                      setHoveredFood(null);
+                    } else {
+                      setPinnedFood(normalizedFood);
+                    }
                   }}
-                  onMouseLeave={(e) => (e.target.id === "nutrientBars" || e.target.id === "logTable") ? setHoveredFood(null) : null}
+                  onMouseEnter={() => { setHoveredFood(normalizedFood); setHoveredLibraryId(food.id); }}
+                  onMouseLeave={() => { setHoveredFood(null); setHoveredLibraryId(null); }}
                   style={{
                     position: "relative",
                     display: "flex",
@@ -1121,8 +1134,10 @@ export default function Nutrition() {
                     padding: "9px 10px",
                     borderRadius: 8,
                     marginBottom: 6,
-                    background: "#fafafa",
-                    border: "1px solid #f0f0f0",
+                    background: hoveredLibraryId === food.id ? "#fff0e6" : "#fafafa",
+                    border: `1px solid ${hoveredLibraryId === food.id ? "#ff8c42" : "#f0f0f0"}`,
+                    cursor: "pointer",
+                    transition: "background 0.15s, border-color 0.15s",
                   }}
                 >
                   <div>
@@ -1269,11 +1284,14 @@ export default function Nutrition() {
             foodA={compareFood}
             onClose={() => setCompareFood(null)}
           />
-        ) : hoveredFood ? (
+        ) : pinnedFood ? (
           <UsdaNutrientCard
-            food={hoveredFood}
-            onCompare={() => { setCompareFood(hoveredFood); setHoveredFood(null); }}
+            food={pinnedFood}
+            onClose={() => setPinnedFood(null)}
+            onCompare={() => { setCompareFood(pinnedFood); setPinnedFood(null); }}
           />
+        ) : hoveredFood ? (
+          <UsdaNutrientCard food={hoveredFood} />
         ) : null}
       </div>
 
@@ -1358,7 +1376,7 @@ export default function Nutrition() {
                 </tr>
               </thead>
               <tbody>
-                {entries.map((entry, i) => (
+                {sortedEntries.map((entry, i) => (
                   <tr
                     key={entry.id}
                     style={{
@@ -1502,6 +1520,13 @@ export default function Nutrition() {
       </div>
     </div>
   );
+}
+
+function parseLoggedTime(str) {
+  if (!str) return 0;
+  const [time, period] = str.split(" ");
+  const [h, m] = time.split(":").map(Number);
+  return ((h % 12) + (period === "PM" ? 12 : 0)) * 60 + m;
 }
 
 function inputStyle(extra = {}) {
