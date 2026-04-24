@@ -1,3 +1,5 @@
+import { useRef, useEffect } from "react";
+
 const NUTRIENTS = [
   { num: "208", label: "Calories", unit: "kcal", color: "#ff8c42" },
   { num: "203", label: "Protein", unit: "g", color: "#4f8ef7" },
@@ -8,7 +10,20 @@ const NUTRIENTS = [
   { num: "307", label: "Sodium", unit: "mg", color: "#888" },
 ];
 
-export default function UsdaNutrientCard({ food, scale = 1, inline = false, style: styleProp = {}, onCompare }) {
+export default function UsdaNutrientCard({ food, scale = 1, inline = false, style: styleProp = {}, onCompare, onClose }) {
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (!onClose) return;
+    function handleMouseDown(e) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        onClose();
+      }
+    }
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [onClose]);
+
   const get = (num) => {
     const n = food.foodNutrients?.find((n) => n.nutrientNumber === num);
     return n != null ? Math.round(n.value * scale * 10) / 10 : null;
@@ -26,17 +41,27 @@ export default function UsdaNutrientCard({ food, scale = 1, inline = false, styl
         boxShadow: "0 8px 28px rgba(0,0,0,0.16)",
         padding: "14px 18px",
         minWidth: 210,
-        pointerEvents: "none",
+        pointerEvents: onClose ? "auto" : "none",
         ...styleProp,
       };
 
   return (
-    <div style={containerStyle}>
+    <div ref={containerRef} style={containerStyle}>
       {!inline && (
         <>
-          <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 13, color: "#333", lineHeight: 1.3 }}>
-            {food.description}
-          </p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+            <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: "#333", lineHeight: 1.3, flex: 1, minWidth: 0 }}>
+              {food.description}
+            </p>
+            {onClose && (
+              <button
+                onClick={onClose}
+                style={{ background: "none", border: "none", fontSize: 14, cursor: "pointer", color: "#aaa", marginLeft: 8, lineHeight: 1, padding: 0, flexShrink: 0 }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
           {food.brandOwner && (
             <p style={{ margin: "0 0 8px", fontSize: 11, color: "#aaa" }}>{food.brandOwner}</p>
           )}
