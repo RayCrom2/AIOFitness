@@ -115,7 +115,7 @@ export default function NutrientCompare({ foodA, onClose, style: styleProp = {},
             padding: "7px 10px",
             border: `1.5px solid ${COLOR_B}`,
             borderRadius: 6,
-            fontSize: 12,
+            fontSize: 16,
             outline: "none",
           }}
         />
