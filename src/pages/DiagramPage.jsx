@@ -1,18 +1,61 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import HumanDiagram from "../components/HumanDiagram";
 import HumanDiagramBack from "../components/HumanDiagramBack";
 import HumanDiagramFemaleFront from "../components/HumanDiagramFemaleFront";
 import HumanDiagramFemaleBack from "../components/HumanDiagramFemaleBack";
-import muscles from "../data/muscles";
+import staticMuscles from "../data/muscles";
+import { supabase } from "../lib/supabase";
 
 export default function DiagramPage() {
   const [selected, setSelected] = useState(null);
   const [activePart, setActivePart] = useState(null);
   const [diagramView, setDiagramView] = useState("front");
-  const [assistantActive, setAssistantActive] = useState(false);
+  const [muscles, setMuscles] = useState(staticMuscles);
+  const [videos, setVideos] = useState({});
+  const [activeExercise, setActiveExercise] = useState(null);
   const diagramRef = useRef(null);
-  const navigate = useNavigate();
+
+  useEffect(() => {
+    supabase
+      .from("muscles")
+      .select("*, muscle_parts(*)")
+      .order("display_order")
+      .then(({ data, error }) => {
+        if (error || !data?.length) return;
+        const dict = {};
+        for (const row of data) {
+          const parts = (row.muscle_parts ?? [])
+            .sort((a, b) => a.display_order - b.display_order)
+            .map(({ key, name, description, tips, exercises }) => ({
+              key,
+              name,
+              description,
+              tips,
+              exercises: exercises ?? [],
+            }));
+          dict[row.slug] = {
+            slug: row.slug,
+            name: row.name,
+            description: row.description,
+            tips: row.tips,
+            exercises: row.exercises ?? [],
+            contraindications: row.contraindications ?? [],
+            parts,
+          };
+        }
+        setMuscles(dict);
+      });
+
+    supabase
+      .from("exercise_videos")
+      .select("name, url")
+      .then(({ data }) => {
+        if (!data?.length) return;
+        const map = {};
+        for (const row of data) map[row.name.toLowerCase()] = row.url;
+        setVideos(map);
+      });
+  }, []);
 
   const extractSlug = (val) => {
     if (typeof val === "string") return val;
@@ -80,14 +123,32 @@ export default function DiagramPage() {
     if (!selected) return null;
     const base = selected.replace(/\.(left|right)$/i, "");
     return muscles[base] || null;
-  }, [selected]);
+  }, [selected, muscles]);
 
   useEffect(() => {
     setActivePart(null);
+    setActiveExercise(null);
   }, [selected]);
 
-  const handleClick = () => {
-    console.log(assistantActive);
+  useEffect(() => {
+    setActiveExercise(null);
+  }, [activePart]);
+
+  const toEmbedUrl = (url) => {
+    if (!url) return null;
+    try {
+      const u = new URL(url);
+      const v = u.searchParams.get("v");
+      if (v) return `https://www.youtube.com/embed/${v}?rel=0`;
+      const parts = u.pathname.split("/").filter(Boolean);
+      const segIdx = parts.findIndex((p) => p === "shorts" || p === "embed" || p === "v");
+      if (segIdx !== -1 && parts[segIdx + 1]) return `https://www.youtube.com/embed/${parts[segIdx + 1]}?rel=0`;
+    } catch (_) {}
+    return null;
+  };
+
+  const handleExerciseClick = (ex) => {
+    setActiveExercise((prev) => (prev === ex ? null : ex));
   };
 
   return (
@@ -168,147 +229,135 @@ export default function DiagramPage() {
             </h2>
             {displayInfo ? (
               <>
-                <p>{displayInfo.description}</p>
-                {displayInfo.tips ? (
-                  <p>
-                    <strong>Tips:</strong> {displayInfo.tips}
-                  </p>
-                ) : null}
+                {/* Parts selector — always visible when parts exist */}
                 {displayInfo.parts && displayInfo.parts.length ? (
-                  <div className="mt-2">
-                    <p>
-                      <strong>Parts</strong>
-                    </p>
+                  <div className="mt-1 mb-3">
                     <div className="flex gap-2 flex-wrap">
                       {displayInfo.parts.map((p) => (
                         <button
                           key={p.key}
-                          onClick={() => setActivePart(p.key)}
+                          onClick={() => setActivePart(activePart === p.key ? null : p.key)}
                           className={
                             activePart === p.key
-                              ? "px-2.5 py-1.5 rounded-md border-2 border-[#ff8c42] bg-[#ff8c42] text-white cursor-pointer"
-                              : "px-2.5 py-1.5 rounded-md border border-gray-300 bg-white text-gray-900 cursor-pointer"
+                              ? "px-2.5 py-1.5 rounded-md border-2 border-[#ff8c42] bg-[#ff8c42] text-white cursor-pointer text-sm"
+                              : "px-2.5 py-1.5 rounded-md border border-gray-300 bg-white text-gray-900 cursor-pointer text-sm"
                           }
                         >
                           {p.name}
                         </button>
                       ))}
-                      <button
-                        onClick={() => setActivePart(null)}
-                        className="px-2.5 py-1.5 rounded-md border border-gray-300 bg-white cursor-pointer"
-                      >
-                        Clear
-                      </button>
                     </div>
                   </div>
                 ) : null}
 
+                {/* Active part detail — replaces muscle-level content */}
                 {activePart ? (
                   (() => {
-                    const part = displayInfo.parts?.find(
-                      (pp) => pp.key === activePart,
-                    );
+                    const part = displayInfo.parts?.find((pp) => pp.key === activePart);
                     if (!part) return null;
                     return (
-                      <div className="mt-2.5">
+                      <>
+                        <p className="text-xs text-gray-400 mb-1 mt-0">{displayInfo.name}</p>
+                        <h3 className="mt-0 mb-1">{part.name}</h3>
                         <p>{part.description}</p>
                         {part.tips ? (
-                          <p>
-                            <strong>Tips:</strong> {part.tips}
-                          </p>
+                          <p><strong>Tips:</strong> {part.tips}</p>
                         ) : null}
                         {part.exercises && part.exercises.length ? (
                           <>
-                            <p>
-                              <strong>Exercises</strong>
-                            </p>
-                            <ul>
-                              {part.exercises.map((ex) => (
-                                <li key={ex}>
-                                  <a
-                                    href="#"
-                                    className="text-blue-600 underline"
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      navigate(
-                                        `/videos?exercise=${encodeURIComponent(ex)}`,
-                                      );
-                                    }}
-                                  >
-                                    {ex}
-                                  </a>
-                                </li>
-                              ))}
+                            <p><strong>Exercises</strong></p>
+                            <ul className="list-none p-0 m-0">
+                              {part.exercises.map((ex) => {
+                                const embedUrl = toEmbedUrl(videos[ex.toLowerCase()]);
+                                const isActive = activeExercise === ex;
+                                return (
+                                  <li key={ex} className="mb-1">
+                                    <button
+                                      className="text-blue-600 underline text-left cursor-pointer bg-transparent border-0 p-0 font-inherit text-[inherit]"
+                                      onClick={() => handleExerciseClick(ex)}
+                                    >
+                                      {ex}
+                                    </button>
+                                    {isActive && embedUrl && (
+                                      <div className="mt-1.5 rounded-lg overflow-hidden" style={{ position: "relative", paddingTop: "56.25%" }}>
+                                        <iframe
+                                          title={ex}
+                                          src={embedUrl}
+                                          allow="autoplay; encrypted-media"
+                                          allowFullScreen
+                                          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
+                                        />
+                                      </div>
+                                    )}
+                                    {isActive && !embedUrl && (
+                                      <p className="text-gray-400 text-sm mt-0.5">No video available</p>
+                                    )}
+                                  </li>
+                                );
+                              })}
                             </ul>
                           </>
                         ) : null}
-                      </div>
+                      </>
                     );
                   })()
-                ) : displayInfo.exercises && displayInfo.exercises.length ? (
+                ) : (
+                  /* No part selected — show muscle-level content */
                   <>
-                    <p>
-                      <strong>Exercises</strong>
-                    </p>
-                    <ul>
-                      {displayInfo.exercises.map((ex) => (
-                        <li key={ex}>
-                          <a
-                            href="#"
-                            className="text-blue-600 underline"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              navigate(
-                                `/videos?exercise=${encodeURIComponent(ex)}`,
-                              );
-                            }}
-                          >
-                            {ex}
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
+                    <p>{displayInfo.description}</p>
+                    {displayInfo.tips ? (
+                      <p><strong>Tips:</strong> {displayInfo.tips}</p>
+                    ) : null}
+                    {displayInfo.exercises && displayInfo.exercises.length ? (
+                      <>
+                        <p><strong>Exercises</strong></p>
+                        <ul className="list-none p-0 m-0">
+                          {displayInfo.exercises.map((ex) => {
+                            const embedUrl = toEmbedUrl(videos[ex.toLowerCase()]);
+                            const isActive = activeExercise === ex;
+                            return (
+                              <li key={ex} className="mb-1">
+                                <button
+                                  className="text-blue-600 underline text-left cursor-pointer bg-transparent border-0 p-0 font-inherit text-[inherit]"
+                                  onClick={() => handleExerciseClick(ex)}
+                                >
+                                  {ex}
+                                </button>
+                                {isActive && embedUrl && (
+                                  <div className="mt-1.5 rounded-lg overflow-hidden" style={{ position: "relative", paddingTop: "56.25%" }}>
+                                    <iframe
+                                      title={ex}
+                                      src={embedUrl}
+                                      allow="autoplay; encrypted-media"
+                                      allowFullScreen
+                                      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
+                                    />
+                                  </div>
+                                )}
+                                {isActive && !embedUrl && (
+                                  <p className="text-gray-400 text-sm mt-0.5">No video available</p>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </>
+                    ) : null}
+                    {displayInfo.contraindications && displayInfo.contraindications.length ? (
+                      <>
+                        <p><strong>Contraindications</strong></p>
+                        <ul>
+                          {displayInfo.contraindications.map((c) => (
+                            <li key={c}>{c}</li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : null}
                   </>
-                ) : null}
-
-                {displayInfo.contraindications &&
-                displayInfo.contraindications.length ? (
-                  <>
-                    <p>
-                      <strong>Contraindications</strong>
-                    </p>
-                    <ul>
-                      {displayInfo.contraindications.map((c) => (
-                        <li key={c}>{c}</li>
-                      ))}
-                    </ul>
-                  </>
-                ) : null}
+                )}
               </>
             ) : (
               <p>No muscle selected. Click the diagram to get started.</p>
-            )}
-          </div>
-          <div
-            className="mt-2" /*{className="bg-green-200 p-2 rounded-lg mt-1 flex-1 shadow-[0_6px_18px_rgba(0,0,0,0.06)]"}*/
-          >
-            {assistantActive ? (
-              <div className="flex">
-                <p>Hi</p>
-                <button
-                  className="w-auto ml-auto text-center px-2 py-1 rounded-lg cursor-pointer border-2 border-[#ff8c42] text-[#ff8c42] font-semibold hover:bg-[#ff8c42] hover:text-white"
-                  onClick={() => setAssistantActive(!assistantActive)}
-                >
-                  Exit AI Mode
-                </button>
-              </div>
-            ) : (
-              <button
-                className="w-full  text-left pl-4 py-2 rounded-lg cursor-pointer border-2 border-[#ff8c42] text-[#ff8c42] font-semibold hover:bg-[#ff8c42] hover:text-white"
-                onClick={() => setAssistantActive(!assistantActive)}
-              >
-                Ask AI Assistant
-              </button>
             )}
           </div>
         </div>

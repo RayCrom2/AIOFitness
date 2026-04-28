@@ -1,12 +1,13 @@
-# Task: Allow Comparison Originating from USDA Food
+# Task: Move Muscle Information to Backend API or Database and make some improvements
 
-## Status: Incomplete
+## Status: Complete
 
 ## Steps
 
-- [ ] 1. Find in Nutrition.jsx where the dropdown menu for foods found in USDA database is
-- [ ] 2. Create button in the dropdown from step 1 that is the same as the "Compare" button for foods in "My Food Library"
-- [ ] 3. Mimic the comparison or use the same component "NutrientCompare.jsx"
+- [x] 1. Source new Information for Each Muscle and their Sub Parts
+- [x] 2. Create Data Tables to store the information and have attributes that relate subparts to their primary parts
+- [x] 3. Source new information for each part and populate the table
+- [x] 4. Remove the "Clear" button and instead invoke the behaviour that deselects a part when it is active and then clicked again
 
 ## Notes
 
