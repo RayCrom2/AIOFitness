@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import muscles from '../data/muscles'
-import videos from '../data/videos'
+import staticMuscles from '../data/muscles'
+import staticVideos from '../data/videos'
+import { supabase } from '../lib/supabase'
 
 const slugify = (s) =>
   String(s)
@@ -61,30 +62,52 @@ export default function Videos() {
   const [searchParams] = useSearchParams()
   const targetExercise = searchParams.get('exercise')
 
-  const [playing, setPlaying] = useState(null) // youtube id currently playing
+  const [playing, setPlaying] = useState(null)
+  const [dbVideos, setDbVideos] = useState(null)
+  const [dbExercises, setDbExercises] = useState(null)
 
-  // normalized lookup maps for case-insensitive matching
+  useEffect(() => {
+    supabase.from('exercise_videos').select('name, url').then(({ data }) => {
+      if (!data?.length) return
+      const map = Object.create(null)
+      for (const row of data) map[row.name.toLowerCase()] = row.url
+      setDbVideos(map)
+    })
+
+    supabase.from('muscles').select('exercises, muscle_parts(exercises)').then(({ data }) => {
+      if (!data?.length) return
+      const set = new Set()
+      for (const row of data) {
+        row.exercises?.forEach((e) => set.add(e))
+        row.muscle_parts?.forEach((p) => p.exercises?.forEach((e) => set.add(e)))
+      }
+      setDbExercises(Array.from(set).sort())
+    })
+  }, [])
+
+  // normalized lookup maps — prefer DB data, fall back to static
   const normalizedVideos = useMemo(() => {
+    if (dbVideos) return { map: dbVideos, slugMap: dbVideos }
     const map = Object.create(null)
     const slugMap = Object.create(null)
-    Object.entries(videos).forEach(([k, v]) => {
+    Object.entries(staticVideos).forEach(([k, v]) => {
       if (!k) return
       map[k.toLowerCase().trim()] = v
       slugMap[slugify(k)] = v
     })
     return { map, slugMap }
-  }, [])
+  }, [dbVideos])
 
-  // aggregate unique exercises from muscles data
+  // aggregate unique exercises — prefer DB data, fall back to static
   const exercises = useMemo(() => {
+    if (dbExercises) return dbExercises
     const set = new Set()
-    Object.values(muscles).forEach((m) => {
-      if (m.exercises && m.exercises.length) m.exercises.forEach((e) => set.add(e))
-      if (m.parts && m.parts.length)
-        m.parts.forEach((p) => p.exercises && p.exercises.forEach((e) => set.add(e)))
+    Object.values(staticMuscles).forEach((m) => {
+      if (m.exercises?.length) m.exercises.forEach((e) => set.add(e))
+      if (m.parts?.length) m.parts.forEach((p) => p.exercises?.forEach((e) => set.add(e)))
     })
     return Array.from(set).sort()
-  }, [])
+  }, [dbExercises])
 
   const listRef = useRef(null)
 
