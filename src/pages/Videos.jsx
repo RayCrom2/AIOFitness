@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import staticMuscles from '../data/muscles'
-import staticVideos from '../data/videos'
 import { supabase } from '../lib/supabase'
 
 const slugify = (s) =>
@@ -85,29 +83,12 @@ export default function Videos() {
     })
   }, [])
 
-  // normalized lookup maps — prefer DB data, fall back to static
   const normalizedVideos = useMemo(() => {
-    if (dbVideos) return { map: dbVideos, slugMap: dbVideos }
-    const map = Object.create(null)
-    const slugMap = Object.create(null)
-    Object.entries(staticVideos).forEach(([k, v]) => {
-      if (!k) return
-      map[k.toLowerCase().trim()] = v
-      slugMap[slugify(k)] = v
-    })
-    return { map, slugMap }
+    const map = dbVideos ?? Object.create(null)
+    return { map, slugMap: map }
   }, [dbVideos])
 
-  // aggregate unique exercises — prefer DB data, fall back to static
-  const exercises = useMemo(() => {
-    if (dbExercises) return dbExercises
-    const set = new Set()
-    Object.values(staticMuscles).forEach((m) => {
-      if (m.exercises?.length) m.exercises.forEach((e) => set.add(e))
-      if (m.parts?.length) m.parts.forEach((p) => p.exercises?.forEach((e) => set.add(e)))
-    })
-    return Array.from(set).sort()
-  }, [dbExercises])
+  const exercises = useMemo(() => dbExercises ?? [], [dbExercises])
 
   const listRef = useRef(null)
 

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" fill="#1c1c1e"/>
+
+  <defs>
+    <mask id="zero-slash">
+      <!-- Outer ellipse: visible area -->
+      <ellipse cx="256" cy="256" rx="150" ry="175" fill="white"/>
+      <!-- Inner hole: cut out -->
+      <ellipse cx="256" cy="256" rx="88" ry="108" fill="black"/>
+      <!-- Slash: add back in (endpoints are the exact intersections with the outer ellipse) -->
+      <line x1="142" y1="370" x2="370" y2="142" stroke="white" stroke-width="54" stroke-linecap="butt"/>
+    </mask>
+  </defs>
+
+  <!-- Single red fill, shaped by the mask into: ring + slash -->
+  <rect width="512" height="512" fill="#ff3b30" mask="url(#zero-slash)"/>
+</svg>
