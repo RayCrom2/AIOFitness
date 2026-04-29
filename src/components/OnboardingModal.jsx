@@ -346,7 +346,7 @@ function Row({ label, unit, children }) {
 
 const unitToggle = { border: "none", borderRadius: 6, padding: "3px 7px", fontSize: 11, cursor: "pointer", fontWeight: 600 };
 const labelStyle = { fontSize: 13, fontWeight: 600, color: "#555" };
-const numInput = { padding: "7px 10px", border: "1px solid #e0e0e0", borderRadius: 8, fontSize: 14, outline: "none", textAlign: "right", background: "#fafafa", width: 80 };
+const numInput = { padding: "7px 10px", border: "1px solid #e0e0e0", borderRadius: 8, fontSize: 16, outline: "none", textAlign: "right", background: "#fafafa", width: 80 };
 const primaryBtn = { background: "#ff8c42", color: "#fff", border: "none", borderRadius: 10, padding: "11px 0", fontWeight: 700, fontSize: 14, cursor: "pointer", width: "100%" };
 const secondaryBtn = { background: "#f7f7fb", color: "#555", border: "none", borderRadius: 10, padding: "11px 0", fontWeight: 600, fontSize: 14, cursor: "pointer" };
 const chipBtn = { border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, cursor: "pointer", fontWeight: 500 };

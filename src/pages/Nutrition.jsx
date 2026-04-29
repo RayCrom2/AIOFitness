@@ -935,7 +935,7 @@ export default function Nutrition() {
                     step="any"
                     value={servingInput}
                     onChange={(e) => setServingInput(e.target.value)}
-                    style={{ width: 70, padding: "5px 8px", border: "1px solid #e0e0e0", borderRadius: "6px 0 0 6px", borderRight: "none", fontSize: 13, outline: "none", background: "#fff" }}
+                    style={{ width: 70, padding: "5px 8px", border: "1px solid #e0e0e0", borderRadius: "6px 0 0 6px", borderRight: "none", fontSize: 16, outline: "none", background: "#fff" }}
                   />
                   <span style={{ border: "1px solid #e0e0e0", borderLeft: "none", borderRadius: "0 6px 6px 0", padding: "5px 8px", fontSize: 13, color: "#888", background: "#fafafa", display: "flex", alignItems: "center" }}>
                     {(selectedUsdaFood.servingSizeUnit || "g").toLowerCase()}
@@ -952,7 +952,7 @@ export default function Nutrition() {
                     step="0.1"
                     value={servingInput}
                     onChange={(e) => setServingInput(e.target.value)}
-                    style={{ width: 60, padding: "5px 8px", border: "1px solid #e0e0e0", borderRadius: "0 6px 6px 0", borderLeft: "none", fontSize: 13, outline: "none", background: "#fff" }}
+                    style={{ width: 60, padding: "5px 8px", border: "1px solid #e0e0e0", borderRadius: "0 6px 6px 0", borderLeft: "none", fontSize: 16, outline: "none", background: "#fff" }}
                   />
                 </div>
               )}
@@ -1000,7 +1000,7 @@ export default function Nutrition() {
                   placeholder="Calories"
                   value={form.calories}
                   onChange={handleChange}
-                  style={{ border: "none", background: "transparent", outline: "none", fontSize: 14, minWidth: 0, flex: 1 }}
+                  style={{ border: "none", background: "transparent", outline: "none", fontSize: 16, minWidth: 0, flex: 1 }}
                 />
                 <span style={{ color: "#aaa", fontSize: 13, marginLeft: 8, flexShrink: 0 }}>kcal</span>
               </div>
@@ -1031,7 +1031,7 @@ export default function Nutrition() {
                     placeholder={label}
                     value={form[name]}
                     onChange={handleChange}
-                    style={{ border: "none", background: "transparent", outline: "none", fontSize: 14, minWidth: 0, flex: 1 }}
+                    style={{ border: "none", background: "transparent", outline: "none", fontSize: 16, minWidth: 0, flex: 1 }}
                   />
                   <span style={{ color: "#aaa", fontSize: 13, marginLeft: 8, flexShrink: 0 }}>
                     g{form[name] ? ` ${label}` : ""}
@@ -1139,12 +1139,12 @@ export default function Nutrition() {
                   value={myFoodsSearch}
                   onChange={(e) => setMyFoodsSearch(e.target.value)}
                   placeholder="Search saved foods…"
-                  style={{ flex: 1, padding: "6px 10px", fontSize: 13, border: "1px solid #e0e0e0", borderRadius: 7, outline: "none", background: "#fafafa" }}
+                  style={{ flex: 1, padding: "6px 10px", fontSize: 16, border: "1px solid #e0e0e0", borderRadius: 7, outline: "none", background: "#fafafa" }}
                 />
                 <select
                   value={myFoodsSort}
                   onChange={(e) => setMyFoodsSort(e.target.value)}
-                  style={{ padding: "6px 8px", fontSize: 12, border: "1px solid #e0e0e0", borderRadius: 7, background: "#fafafa", cursor: "pointer", outline: "none", color: "#555" }}
+                  style={{ padding: "6px 8px", fontSize: 16, border: "1px solid #e0e0e0", borderRadius: 7, background: "#fafafa", cursor: "pointer", outline: "none", color: "#555" }}
                 >
                   <option value="name_asc">Name A→Z</option>
                   <option value="name_desc">Name Z→A</option>
@@ -1252,7 +1252,7 @@ export default function Nutrition() {
                             borderRadius: "6px 0 0 6px",
                             borderRight: "none",
                             padding: "4px 6px",
-                            fontSize: 12,
+                            fontSize: 16,
                           }}
                         />
                         <span
@@ -1305,7 +1305,7 @@ export default function Nutrition() {
                             borderRadius: "0 6px 6px 0",
                             borderLeft: "none",
                             padding: "4px 6px",
-                            fontSize: 12,
+                            fontSize: 16,
                           }}
                         />
                       </div>
@@ -1706,7 +1706,7 @@ function inputStyle(extra = {}) {
     padding: "9px 12px",
     border: "1px solid #e0e0e0",
     borderRadius: 8,
-    fontSize: 14,
+    fontSize: 16,
     outline: "none",
     background: "#fafafa",
     minWidth: 0,
