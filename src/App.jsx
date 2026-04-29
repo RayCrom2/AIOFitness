@@ -66,9 +66,9 @@ export default function App() {
           {/* <NavLink to="/videos">Videos</NavLink> */}
           <NavAuth />
         </nav>
-        <p className="font-bold text-[2rem] mb-1">
-          RIR<span style={{ color: "red" }}>0</span>
-        </p>
+        {/* <p>
+        <img src="/pwa-icon.svg" alt="0" style={{ width: '3em', height: '3em', verticalAlign: 'middle', marginBottom: '0.15em' }} />
+        </p> */}
 
         <Routes>
           <Route path="/" element={<Navigate to="/nutrition" replace />} />

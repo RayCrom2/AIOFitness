@@ -3,14 +3,13 @@ import HumanDiagram from "../components/HumanDiagram";
 import HumanDiagramBack from "../components/HumanDiagramBack";
 import HumanDiagramFemaleFront from "../components/HumanDiagramFemaleFront";
 import HumanDiagramFemaleBack from "../components/HumanDiagramFemaleBack";
-import staticMuscles from "../data/muscles";
 import { supabase } from "../lib/supabase";
 
 export default function DiagramPage() {
   const [selected, setSelected] = useState(null);
   const [activePart, setActivePart] = useState(null);
   const [diagramView, setDiagramView] = useState("front");
-  const [muscles, setMuscles] = useState(staticMuscles);
+  const [muscles, setMuscles] = useState({});
   const [videos, setVideos] = useState({});
   const [activeExercise, setActiveExercise] = useState(null);
   const diagramRef = useRef(null);
